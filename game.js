@@ -2,6 +2,45 @@
 // Endless Core - core game logic
 // ============================================================
 
+// ---------- Safe storage wrapper ----------
+// localStorage can throw synchronously (SecurityError) rather than just
+// being unavailable — this happens in a sandboxed iframe without
+// allow-same-origin (a realistic embed scenario for a hosted/Playables-style
+// platform), and in some strict browser privacy modes. An uncaught throw
+// here would previously kill the entire script before anything rendered, so
+// every persistence feature routes through storageGet/storageSet, which
+// fall back to an in-memory store instead. The game stays fully playable —
+// it just won't remember progress between sessions in that case.
+const memoryStorage = {};
+let storageAvailable = true;
+try {
+  const testKey = '__ec_storage_test__';
+  localStorage.setItem(testKey, '1');
+  localStorage.removeItem(testKey);
+} catch {
+  storageAvailable = false;
+}
+
+function storageGet(key) {
+  if (!storageAvailable) return Object.prototype.hasOwnProperty.call(memoryStorage, key) ? memoryStorage[key] : null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    storageAvailable = false;
+    return Object.prototype.hasOwnProperty.call(memoryStorage, key) ? memoryStorage[key] : null;
+  }
+}
+
+function storageSet(key, value) {
+  if (!storageAvailable) { memoryStorage[key] = value; return; }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    storageAvailable = false;
+    memoryStorage[key] = value;
+  }
+}
+
 // ---------- Canvas setup ----------
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -265,7 +304,7 @@ const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing en
 
 function loadRelicsFound() {
   try {
-    const saved = JSON.parse(localStorage.getItem('ec_relics') || '[]');
+    const saved = JSON.parse(storageGet('ec_relics') || '[]');
     return Array.isArray(saved) ? saved : [];
   } catch {
     return [];
@@ -326,7 +365,7 @@ function generateDailyContracts() {
 // fresh set if none exist yet or the last set is more than 24h old.
 function loadOrGenerateDailyContracts() {
   try {
-    const saved = JSON.parse(localStorage.getItem('ec_dailyContracts') || 'null');
+    const saved = JSON.parse(storageGet('ec_dailyContracts') || 'null');
     if (saved && Array.isArray(saved.goals) && Date.now() - saved.generatedAt < CONTRACT_REFRESH_MS) {
       return saved;
     }
@@ -334,12 +373,12 @@ function loadOrGenerateDailyContracts() {
     // fall through to a fresh set
   }
   const fresh = { generatedAt: Date.now(), goals: generateDailyContracts() };
-  localStorage.setItem('ec_dailyContracts', JSON.stringify(fresh));
+  storageSet('ec_dailyContracts', JSON.stringify(fresh));
   return fresh;
 }
 
 function saveDailyContracts() {
-  localStorage.setItem('ec_dailyContracts', JSON.stringify(state.dailyContracts));
+  storageSet('ec_dailyContracts', JSON.stringify(state.dailyContracts));
 }
 
 // ---------- Lightweight telemetry ----------
@@ -359,14 +398,14 @@ const Analytics = {
 
     let history;
     try {
-      history = JSON.parse(localStorage.getItem('ec_analytics') || '[]');
+      history = JSON.parse(storageGet('ec_analytics') || '[]');
       if (!Array.isArray(history)) history = [];
     } catch {
       history = [];
     }
     history.push(record);
     while (history.length > ANALYTICS_HISTORY_LIMIT) history.shift();
-    localStorage.setItem('ec_analytics', JSON.stringify(history));
+    storageSet('ec_analytics', JSON.stringify(history));
 
     return record;
   },
@@ -429,7 +468,7 @@ function getActiveClass() {
 function selectClass(classId) {
   if (!DRILL_CLASSES[classId] || !isClassUnlocked(classId)) return;
   state.selectedClass = classId;
-  localStorage.setItem('ec_selectedClass', classId);
+  storageSet('ec_selectedClass', classId);
   renderLoadoutScreen();
 }
 
@@ -437,7 +476,7 @@ function selectClass(classId) {
 // requires more relics than are currently owned (defensive, shouldn't happen
 // since relic count only ever grows).
 function loadSelectedClass() {
-  const saved = localStorage.getItem('ec_selectedClass');
+  const saved = storageGet('ec_selectedClass');
   const relicsCount = loadRelicsFound().length;
   if (saved && DRILL_CLASSES[saved] && relicsCount >= DRILL_CLASSES[saved].relicsRequired) {
     return saved;
@@ -562,9 +601,9 @@ const state = {
   running: false,
   gameOver: false,
   gold: 0,
-  bankedGold: parseInt(localStorage.getItem('ec_bankedGold') || '0', 10),
-  highScore: parseInt(localStorage.getItem('ec_highScore') || '0', 10),
-  fuelUpgradeLevel: parseInt(localStorage.getItem('ec_fuelUpgradeLevel') || '0', 10),
+  bankedGold: parseInt(storageGet('ec_bankedGold') || '0', 10),
+  highScore: parseInt(storageGet('ec_highScore') || '0', 10),
+  fuelUpgradeLevel: parseInt(storageGet('ec_fuelUpgradeLevel') || '0', 10),
   relicsFound: loadRelicsFound(), // array of collected RELIC_DEFS ids, persisted
   dailyContracts: loadOrGenerateDailyContracts(), // { generatedAt, goals: [...] }, persisted
   selectedClass: loadSelectedClass(), // 'ROOKIE' | 'JACKHAMMER' | 'PLASMA', persisted
@@ -603,8 +642,8 @@ function buyFuelUpgrade() {
 
   state.bankedGold -= cost;
   state.fuelUpgradeLevel += 1;
-  localStorage.setItem('ec_bankedGold', String(state.bankedGold));
-  localStorage.setItem('ec_fuelUpgradeLevel', String(state.fuelUpgradeLevel));
+  storageSet('ec_bankedGold', String(state.bankedGold));
+  storageSet('ec_fuelUpgradeLevel', String(state.fuelUpgradeLevel));
 }
 
 // ---------- Juice: particles ----------
@@ -1148,7 +1187,7 @@ function showNextToast() {
 
 function syncBankedGold(extra) {
   state.bankedGold += Math.floor(extra);
-  localStorage.setItem('ec_bankedGold', String(state.bankedGold));
+  storageSet('ec_bankedGold', String(state.bankedGold));
 }
 
 // Persists a new high score if the current run beat it. Returns true if a record was set.
@@ -1157,7 +1196,7 @@ function updateHighScore() {
   finalScoreEl.textContent = 'Score: ' + score;
   if (score > state.highScore) {
     state.highScore = score;
-    localStorage.setItem('ec_highScore', String(state.highScore));
+    storageSet('ec_highScore', String(state.highScore));
     highscoreDisplayEl.textContent = 'High Score: ' + state.highScore;
     newHighscoreBadge.classList.remove('hidden');
     return true;
@@ -1412,7 +1451,7 @@ function collectRelic(worldX, worldY) {
 
   const newId = uncollectedIds[Math.floor(Math.random() * uncollectedIds.length)];
   state.relicsFound.push(newId);
-  localStorage.setItem('ec_relics', JSON.stringify(state.relicsFound));
+  storageSet('ec_relics', JSON.stringify(state.relicsFound));
 
   const relicColor = RELIC_DEFS[newId].color;
   spawnParticles(worldX, worldY, relicColor, 16);
