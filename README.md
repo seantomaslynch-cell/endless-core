@@ -1,5 +1,7 @@
 # Endless Core
 
+[![GitHub Pages](https://github.com/seantomaslynch-cell/endless-core/actions/workflows/pages/pages-build-deployment/badge.svg)](https://seantomaslynch-cell.github.io/endless-core/)
+
 **[Play it here](https://seantomaslynch-cell.github.io/endless-core/)**
 
 An endless vertical drilling game built with vanilla HTML5 Canvas and JavaScript — no frameworks, no build step, no dependencies.
