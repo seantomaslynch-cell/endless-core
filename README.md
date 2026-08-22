@@ -6,6 +6,8 @@
 
 An endless vertical drilling game built with vanilla HTML5 Canvas and JavaScript — no frameworks, no build step, no dependencies.
 
+![Endless Core gameplay screenshot](screenshot.png)
+
 ## Features
 
 - Procedurally generated terrain (Perlin noise) with a guaranteed safe path down
