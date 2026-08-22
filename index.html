@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Endless Core</title>
+<link rel="stylesheet" href="style.css" />
+<!-- TODO: Mediacube Web SDK <script> tag goes here, before game.js loads.
+     Not inserted yet — the SDK snippet wasn't provided, and a real ad
+     network's CDN URL/API shouldn't be guessed at for a production build. -->
+</head>
+<body>
+<div id="game-container">
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="depth-display">Depth: 0m</div>
+    <div id="gold-display">Gold: 0</div>
+    <div id="score-display">Score: 0</div>
+    <div id="combo-display">Combo: x1.0</div>
+    <div id="biome-display">Zone: Dirt</div>
+    <div id="magnet-display" class="hidden">🧲 Magnet: 10.0s</div>
+    <div id="health-bar-outer">
+      <div id="health-bar-inner"></div>
+    </div>
+  </div>
+
+  <!-- Contract-complete toast -->
+  <div id="toast" class="hidden"></div>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="overlay">
+    <h1>ENDLESS CORE</h1>
+    <p>Drill down. Avoid stone. Grab gold.</p>
+    <p class="hint">Hold LEFT / RIGHT side of the screen to steer.</p>
+    <p id="start-highscore">High Score: 0</p>
+    <button id="start-btn">Start Drilling</button>
+    <button id="start-upgrades-btn">Upgrades</button>
+    <button id="start-museum-btn">Museum</button>
+    <button id="start-loadout-btn">Loadout</button>
+    <button id="start-contracts-btn">Daily Contracts</button>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h1>DRILL DESTROYED</h1>
+    <p>Final Depth: <span id="final-depth">0m</span></p>
+    <p>Total Gold: <span id="final-gold">0</span></p>
+    <p id="final-score">Score: 0</p>
+    <p id="final-contract-bonus" class="contract-bonus-line"></p>
+    <p id="new-highscore-badge" class="hidden">NEW HIGH SCORE!</p>
+    <p id="highscore-display">High Score: 0</p>
+    <button id="revive-btn">Watch Ad to Revive (Restore 50% Health)</button>
+    <button id="double-gold-btn">Watch Ad to 2x Gold</button>
+    <button id="upgrades-btn">Upgrades</button>
+    <button id="museum-btn">Museum</button>
+    <button id="restart-btn">Restart</button>
+  </div>
+
+  <!-- Upgrades Overlay -->
+  <div id="upgrades-screen" class="overlay hidden">
+    <h1>UPGRADES</h1>
+    <p>Banked Gold: <span id="banked-gold">0</span></p>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Fuel Tank</div>
+      <div class="upgrade-desc" id="fuel-upgrade-desc">Level 0/5 — Max Health 100</div>
+      <button id="fuel-upgrade-btn">Upgrade — 20 Gold</button>
+    </div>
+
+    <button id="close-upgrades-btn">Close</button>
+  </div>
+
+  <!-- Chest Overlay (mid-run power-up) -->
+  <div id="chest-screen" class="overlay hidden">
+    <h1>Supply Cache!</h1>
+    <p>You found a Supply Cache!</p>
+    <button id="chest-ad-btn">Watch Ad to Activate Magnet (10s)</button>
+    <button id="chest-skip-btn">Skip</button>
+  </div>
+
+  <!-- Artifact Museum Overlay -->
+  <div id="museum-screen" class="overlay hidden">
+    <h1>ARTIFACT MUSEUM</h1>
+    <p id="museum-count">0 / 5 Relics Collected</p>
+    <div class="relic-grid" id="relic-grid"></div>
+    <button id="close-museum-btn">Close</button>
+  </div>
+
+  <!-- Loadout Overlay -->
+  <div id="loadout-screen" class="overlay hidden">
+    <h1>LOADOUT</h1>
+    <p class="hint">Choose your drill class. Unlock more by collecting Relics.</p>
+    <div class="class-list" id="class-list"></div>
+    <button id="close-loadout-btn">Close</button>
+  </div>
+
+  <!-- Daily Contracts Overlay -->
+  <div id="contracts-screen" class="overlay hidden">
+    <h1>DAILY CONTRACTS</h1>
+    <p class="hint">Refresh every 24 hours. Complete a goal in a single run for bonus gold.</p>
+    <div class="contract-list" id="contract-list"></div>
+    <button id="close-contracts-btn">Close</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
