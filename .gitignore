@@ -1,0 +1,7 @@
+# Node / npm
+node_modules/
+
+# www/ is a mechanical copy of index.html/style.css/game.js (see
+# `npm run sync:www`), generated as Capacitor's webDir target — the root
+# copies of those three files stay the single source of truth.
+www/

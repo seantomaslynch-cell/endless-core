@@ -2,6 +2,15 @@
 // Endless Core - core game logic
 // ============================================================
 
+// ---------- Cross-platform bridge ----------
+// This single game.js ships to two hosts: the web build (YouTube Playables,
+// gated by window.ytgame.IN_PLAYABLES_ENV — see the SDK bootstrap section
+// further down) and the Capacitor-wrapped iOS app. isNativeMobile is the one
+// flag that tells the rest of the file which platform bridge is live; every
+// SDK-facing function below branches on it (or on ytgame's own presence,
+// which is simply absent/inert on iOS) rather than assuming either platform.
+const isNativeMobile = typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
 // ---------- Safe storage wrapper ----------
 // localStorage can throw synchronously (SecurityError) rather than just
 // being unavailable — this happens in a sandboxed iframe without
@@ -1226,6 +1235,15 @@ document.getElementById('restart-btn').addEventListener('click', startGame);
 function showRewardedVideo(rewardId) {
   muteAudio(); // duck game audio for the duration of the ad
 
+  if (isNativeMobile) {
+    // No ad network wired up on iOS yet — always "succeeds" as a placeholder
+    // until the Capacitor AdMob plugin is integrated. Every caller already
+    // treats this as best-effort (grants the reward only on a truthy
+    // resolve), so this is safe to ship ahead of the real integration.
+    unmuteAudio();
+    return Promise.resolve(true);
+  }
+
   if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestRewardedAd) {
     return Promise.resolve(window.ytgame.ads.requestRewardedAd(rewardId))
       .then((result) => { unmuteAudio(); return !!result; })
@@ -1647,6 +1665,9 @@ let interstitialArmed = false;
 async function showInterstitialAd() {
   lastInterstitialTime = Date.now();
   interstitialArmed = false;
+  if (isNativeMobile) {
+    return; // no ad network wired up on iOS yet — placeholder no-op until AdMob integration
+  }
   if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestInterstitialAd)) {
     return; // no SDK present (local/dev testing) — nothing to show
   }
@@ -2286,11 +2307,29 @@ function pauseGameLoop() {
   }
 }
 
-// ---------- YouTube Playables SDK bootstrap ----------
+// ---------- Platform lifecycle bootstrap (Playables SDK / Capacitor) ----------
 // Every hook here is wrapped so an SDK failure/absence can never break the
-// game — this file also has to run standalone (no ytgame) for local dev and
-// the browser-based verification workflow.
+// game — this file also has to run standalone (no ytgame, no Capacitor) for
+// local dev and the browser-based verification workflow.
 function initPlayablesSDK() {
+  if (isNativeMobile) {
+    // iOS: no yt.game.onPause/onResume — Capacitor's App plugin is the
+    // native equivalent. isActive:false covers both backgrounding and the
+    // app being interrupted (e.g. a phone call), same "player left" moment
+    // handleSdkPause()/handleSdkResume() already exist to handle.
+    try {
+      if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+        window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
+          if (isActive) handleSdkResume();
+          else handleSdkPause();
+        });
+      }
+    } catch (e) {
+      // App plugin wiring must never block the game from running
+    }
+    return;
+  }
+
   if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV)) return;
   try {
     const sys = window.ytgame.system;

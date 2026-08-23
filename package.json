@@ -1,0 +1,31 @@
+{
+  "name": "endlesscore",
+  "version": "1.0.0",
+  "description": "An endless vertical drilling game built with vanilla HTML5 Canvas and JavaScript.",
+  "main": "game.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sync:www": "node -e \"['index.html','style.css','game.js'].forEach(f=>require('fs').copyFileSync(f,'www/'+f))\"",
+    "sync:ios": "npm run sync:www && npx cap sync ios"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/seantomaslynch-cell/endless-core.git"
+  },
+  "keywords": [],
+  "author": "Sean Lynch",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/seantomaslynch-cell/endless-core/issues"
+  },
+  "homepage": "https://github.com/seantomaslynch-cell/endless-core#readme",
+  "dependencies": {
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0"
+  }
+}
