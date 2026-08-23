@@ -205,6 +205,20 @@ function playSound(type) {
     peakGain = 0.18;
     osc.frequency.setValueAtTime(700, now);
     osc.frequency.exponentialRampToValueAtTime(1000, now + duration);
+  } else if (type === 'overdrive') {
+    // big rising sawtooth sweep — unmistakable "power up" for Overdrive trigger
+    osc.type = 'sawtooth';
+    duration = 0.5;
+    peakGain = 0.3;
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(1760, now + duration);
+  } else if (type === 'pulverize') {
+    // short bright crunch/zap — Overdrive smashing through a Stone/Gas block
+    osc.type = 'square';
+    duration = 0.09;
+    peakGain = 0.22;
+    osc.frequency.setValueAtTime(900, now);
+    osc.frequency.exponentialRampToValueAtTime(200, now + duration);
   } else {
     return;
   }
@@ -282,6 +296,7 @@ const GOLD = 3;
 const CHEST = 4;
 const RELIC = 5;
 const GAS = 6;
+const TOMBSTONE = 7; // Fallen Miners — decorative, no collision damage, triggers a toast by depth
 
 // ---------- Biomes (depth-based zones) ----------
 // Row index === depth in meters (BLOCK = 40px = 1m), so a row's biome is
@@ -344,6 +359,15 @@ const RELIC_MIN_DEPTH = 1500; // meters
 const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare
 const CHEST_CHANCE = 0.012;   // rare, but findable
 const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing enough
+const TOMBSTONE_CHANCE = 0.008; // Fallen Miners — Dirt/Ice only, purely cosmetic/social
+
+// First 100m (rows 0-99) never spawns Stone or Gas — a hazard-free onboarding
+// stretch. The density ramp (stoneThreshold/goldChance) restarts its own
+// "depth" counter from this point too (see generateRow), so difficulty still
+// climbs on the same smooth eased curve as before — it just starts climbing
+// at row 100 instead of row 0, rather than resuming already ~75% ramped-in
+// and creating a cliff right at the safe-zone boundary.
+const SAFE_ZONE_ROWS = 100;
 
 function loadRelicsFound() {
   try {
@@ -532,6 +556,7 @@ const world = {
   rows: [],       // rows[rowIndex] = array of COLS block types
   lastSafeX: Math.floor(COLS / 2),
   nextRowToGenerate: 0,
+  tombstoneRows: [], // ascending queue of row indices holding a Tombstone, consumed by updateTombstones()
 };
 
 const NOISE_SCALE_X = 0.35;
@@ -563,14 +588,19 @@ function safeGoldChance(depthPixels) {
 }
 
 function generateRow(rowIndex) {
-  const depthPixels = rowIndex * BLOCK;
-  const threshold = stoneThreshold(depthPixels);
-  const goldChanceHere = goldChance(depthPixels);
+  const inSafeZone = rowIndex < SAFE_ZONE_ROWS;
+  // Ramp restarts its own "depth" clock at the safe zone's edge, so the
+  // eased density curve climbs from 0 again at row 100 instead of resuming
+  // already ~75% ramped-in (which would read as a difficulty cliff right at
+  // the boundary).
+  const rampDepthPixels = Math.max(0, (rowIndex - SAFE_ZONE_ROWS) * BLOCK);
+  const threshold = stoneThreshold(rampDepthPixels);
+  const goldChanceHere = goldChance(rampDepthPixels);
   const row = new Array(COLS);
 
   for (let x = 0; x < COLS; x++) {
     const n = NoiseGen.noise2D(x * NOISE_SCALE_X, rowIndex * NOISE_SCALE_Y);
-    if (n > threshold) {
+    if (!inSafeZone && n > threshold) {
       row[x] = STONE;
     } else {
       row[x] = Math.random() < goldChanceHere ? GOLD : DIRT;
@@ -580,12 +610,15 @@ function generateRow(rowIndex) {
   // Guaranteed safe path: random walk relative to previous row's safe x
   const step = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
   const safeX = clamp(world.lastSafeX + step, 0, COLS - 1);
-  row[safeX] = Math.random() < safeGoldChance(depthPixels) ? GOLD : DIRT;
+  row[safeX] = Math.random() < safeGoldChance(rampDepthPixels) ? GOLD : DIRT;
   world.lastSafeX = safeX;
 
-  // Chest / Relic / Gas spawns — only ever replace plain DIRT so they never
-  // swallow a Stone or Gold cell (or each other).
+  // Chest / Relic / Gas / Tombstone spawns — only ever replace plain DIRT so
+  // they never swallow a Stone or Gold cell (or each other). Gas is a hazard
+  // and stays out of the safe zone; Chest/Relic/Tombstone are all benign, so
+  // they're allowed anywhere their own gates permit.
   const rowBiomeForSpawns = getBiome(rowIndex);
+  let tombstoneAddedThisRow = false;
   for (let x = 0; x < COLS; x++) {
     if (row[x] !== DIRT) continue;
     if (
@@ -596,10 +629,14 @@ function generateRow(rowIndex) {
       row[x] = RELIC;
     } else if (Math.random() < CHEST_CHANCE) {
       row[x] = CHEST;
-    } else if (rowBiomeForSpawns.name !== 'Magma' && Math.random() < GAS_CHANCE) {
+    } else if (!inSafeZone && rowBiomeForSpawns.name !== 'Magma' && Math.random() < GAS_CHANCE) {
       row[x] = GAS;
+    } else if (rowBiomeForSpawns.name !== 'Magma' && Math.random() < TOMBSTONE_CHANCE) {
+      row[x] = TOMBSTONE;
+      tombstoneAddedThisRow = true;
     }
   }
+  if (tombstoneAddedThisRow) world.tombstoneRows.push(rowIndex);
 
   world.rows[rowIndex] = row;
 }
@@ -647,15 +684,23 @@ const state = {
   bankedGold: parseInt(storageGet('ec_bankedGold') || '0', 10),
   highScore: parseInt(storageGet('ec_highScore') || '0', 10),
   fuelUpgradeLevel: parseInt(storageGet('ec_fuelUpgradeLevel') || '0', 10),
+  coolingUpgradeLevel: parseInt(storageGet('ec_coolingUpgradeLevel') || '0', 10),
+  thrusterUpgradeLevel: parseInt(storageGet('ec_thrusterUpgradeLevel') || '0', 10),
+  alloyUpgradeLevel: parseInt(storageGet('ec_alloyUpgradeLevel') || '0', 10),
   relicsFound: loadRelicsFound(), // array of collected RELIC_DEFS ids, persisted
   dailyContracts: loadOrGenerateDailyContracts(), // { generatedAt, goals: [...] }, persisted
   selectedClass: loadSelectedClass(), // 'ROOKIE' | 'JACKHAMMER' | 'PLASMA', persisted
+  unlockedTrails: loadUnlockedTrails(), // array of owned TRAIL_DEFS ids, persisted
+  selectedTrail: loadSelectedTrail(), // TRAIL_DEFS id, persisted
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
   magnetTimer: 0, // seconds remaining on the Chest's gold-magnet buff
   dirtBroken: 0, // this run's count, feeds the "Break N Dirt blocks" contract
   pendingContractGold: 0, // bonus gold from contracts completed this run, banked at endGame()
+  overdriveMeter: 0, // 0..OVERDRIVE_MAX, built from near-misses/gold
+  overdriveActive: false,
+  overdriveTimer: 0, // seconds remaining while Overdrive is active
 };
 
 // Score rewards depth traveled and gold collected; gold is weighted heavier
@@ -668,11 +713,26 @@ function currentScore() {
   return computeScore(state.maxDepthReached, state.gold);
 }
 
-// ---------- Upgrades ----------
+// ---------- Upgrades: Expanded Tech Tree ----------
+// Four independent paths, each 5 levels, each with its own gold-sink cost
+// curve. generateUpgradeCosts mirrors the Fuel Tank's original hand-tuned
+// curve (roughly 1.6-2x growth per step) as a reusable exponential formula
+// so the three new paths cost-scale the same way without copy-pasting a
+// literal array per path.
 const BASE_MAX_HEALTH = 100;
 const FUEL_UPGRADE_HEALTH_PER_LEVEL = 20;
-const FUEL_UPGRADE_COSTS = [20, 40, 70, 110, 160]; // cost of each level, index = level - 1
+const FUEL_UPGRADE_COSTS = [20, 40, 70, 110, 160]; // cost of each level, index = level - 1 (original, untouched)
 const FUEL_UPGRADE_MAX_LEVEL = FUEL_UPGRADE_COSTS.length;
+
+function generateUpgradeCosts(baseCost, growthFactor, levels) {
+  const costs = [];
+  let cost = baseCost;
+  for (let i = 0; i < levels; i++) {
+    costs.push(Math.round(cost));
+    cost *= growthFactor;
+  }
+  return costs;
+}
 
 function getMaxHealth() {
   return BASE_MAX_HEALTH + state.fuelUpgradeLevel * FUEL_UPGRADE_HEALTH_PER_LEVEL;
@@ -687,6 +747,126 @@ function buyFuelUpgrade() {
   state.fuelUpgradeLevel += 1;
   storageSet('ec_bankedGold', String(state.bankedGold));
   storageSet('ec_fuelUpgradeLevel', String(state.fuelUpgradeLevel));
+}
+
+// Cooling System — reduces the Magma biome's fuel-drain multiplier from
+// 1.5x (stock) down to 1.1x at max level. Dirt/Ice are unaffected; they were
+// never punishing enough to need it.
+const COOLING_UPGRADE_COSTS = generateUpgradeCosts(25, 1.7, 5);
+const COOLING_UPGRADE_MAX_LEVEL = COOLING_UPGRADE_COSTS.length;
+const MAGMA_FUEL_MULTIPLIER_STOCK = 1.5;
+const MAGMA_FUEL_MULTIPLIER_MAX = 1.1;
+
+function getEffectiveFuelMultiplier(biome) {
+  if (biome.name !== 'Magma') return biome.fuelMultiplier;
+  const t = clamp(state.coolingUpgradeLevel / COOLING_UPGRADE_MAX_LEVEL, 0, 1);
+  return lerp(MAGMA_FUEL_MULTIPLIER_STOCK, MAGMA_FUEL_MULTIPLIER_MAX, t);
+}
+
+function buyCoolingUpgrade() {
+  if (state.coolingUpgradeLevel >= COOLING_UPGRADE_MAX_LEVEL) return;
+  const cost = COOLING_UPGRADE_COSTS[state.coolingUpgradeLevel];
+  if (state.bankedGold < cost) return;
+
+  state.bankedGold -= cost;
+  state.coolingUpgradeLevel += 1;
+  storageSet('ec_bankedGold', String(state.bankedGold));
+  storageSet('ec_coolingUpgradeLevel', String(state.coolingUpgradeLevel));
+}
+
+// Thruster Array — flat bonus added to the drill's baseline horizontal
+// steer speed (still multiplied by biome/class modifiers same as before).
+const THRUSTER_UPGRADE_COSTS = generateUpgradeCosts(20, 1.7, 5);
+const THRUSTER_UPGRADE_MAX_LEVEL = THRUSTER_UPGRADE_COSTS.length;
+const THRUSTER_SPEED_PER_LEVEL = 30; // px/sec added to the 220 base, per level
+
+function getEffectiveSteerSpeed() {
+  return drill.steerSpeed + state.thrusterUpgradeLevel * THRUSTER_SPEED_PER_LEVEL;
+}
+
+function buyThrusterUpgrade() {
+  if (state.thrusterUpgradeLevel >= THRUSTER_UPGRADE_MAX_LEVEL) return;
+  const cost = THRUSTER_UPGRADE_COSTS[state.thrusterUpgradeLevel];
+  if (state.bankedGold < cost) return;
+
+  state.bankedGold -= cost;
+  state.thrusterUpgradeLevel += 1;
+  storageSet('ec_bankedGold', String(state.bankedGold));
+  storageSet('ec_thrusterUpgradeLevel', String(state.thrusterUpgradeLevel));
+}
+
+// Alloy Plating — flat damage reduction against Stone/Gas collisions (a
+// reduction, never immunity: damage is floored at 1 regardless of level).
+const ALLOY_UPGRADE_COSTS = generateUpgradeCosts(30, 1.7, 5);
+const ALLOY_UPGRADE_MAX_LEVEL = ALLOY_UPGRADE_COSTS.length;
+const ALLOY_DAMAGE_REDUCTION_PER_LEVEL = 3; // flat hp, per level
+
+function getAlloyDamageReduction() {
+  return state.alloyUpgradeLevel * ALLOY_DAMAGE_REDUCTION_PER_LEVEL;
+}
+
+function buyAlloyUpgrade() {
+  if (state.alloyUpgradeLevel >= ALLOY_UPGRADE_MAX_LEVEL) return;
+  const cost = ALLOY_UPGRADE_COSTS[state.alloyUpgradeLevel];
+  if (state.bankedGold < cost) return;
+
+  state.bankedGold -= cost;
+  state.alloyUpgradeLevel += 1;
+  storageSet('ec_bankedGold', String(state.bankedGold));
+  storageSet('ec_alloyUpgradeLevel', String(state.alloyUpgradeLevel));
+}
+
+// ---------- Cosmetics: particle trails ----------
+// TRAIL_DEFS.color() returns the color the drill's dirt-break dust emitter
+// should use; 'standard' keeps the original per-biome behavior, the unlocks
+// are fixed colors so they read as a deliberate cosmetic regardless of zone.
+const TRAIL_DEFS = [
+  { id: 'standard', name: 'Standard Dust', cost: 0, color: (biome) => biome.dirtColor },
+  { id: 'neon', name: 'Neon Spark', cost: 150, color: () => '#ff2ee6' },
+  { id: 'magma_ash', name: 'Magma Ash', cost: 300, color: () => '#ff6f30' },
+];
+
+function loadUnlockedTrails() {
+  try {
+    const saved = JSON.parse(storageGet('ec_unlockedTrails') || '["standard"]');
+    return Array.isArray(saved) && saved.includes('standard') ? saved : ['standard'];
+  } catch {
+    return ['standard'];
+  }
+}
+
+function loadSelectedTrail() {
+  const saved = storageGet('ec_selectedTrail');
+  const owned = loadUnlockedTrails();
+  return saved && owned.includes(saved) ? saved : 'standard';
+}
+
+function isTrailUnlocked(id) {
+  return state.unlockedTrails.includes(id);
+}
+
+function getTrailColor(biome) {
+  const trail = TRAIL_DEFS.find((t) => t.id === state.selectedTrail) || TRAIL_DEFS[0];
+  return trail.color(biome);
+}
+
+// Unlocks-then-selects in one action if not yet owned; just selects if
+// already owned. No-ops silently if unaffordable (button is disabled anyway).
+function buyOrSelectTrail(id) {
+  const trail = TRAIL_DEFS.find((t) => t.id === id);
+  if (!trail) return;
+
+  if (isTrailUnlocked(id)) {
+    state.selectedTrail = id;
+    storageSet('ec_selectedTrail', id);
+  } else if (state.bankedGold >= trail.cost) {
+    state.bankedGold -= trail.cost;
+    state.unlockedTrails.push(id);
+    state.selectedTrail = id;
+    storageSet('ec_bankedGold', String(state.bankedGold));
+    storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
+    storageSet('ec_selectedTrail', id);
+  }
 }
 
 // ---------- Juice: particles ----------
@@ -778,7 +958,43 @@ function updateNearMissCombo() {
       if (awardedNearMissCells.has(key)) continue;
       awardedNearMissCells.add(key);
       state.comboMultiplier = clamp(state.comboMultiplier + COMBO_INCREMENT, 1.0, COMBO_MAX);
+      addOverdriveMeter(OVERDRIVE_NEAR_MISS_GAIN);
     }
+  }
+}
+
+// ---------- Core Overdrive (Fever Mode) ----------
+// Meter fills from near-misses (+5, see updateNearMissCombo above) and Gold
+// pickups (+2, see updateCollisions/updateMagnet below). At 100 it triggers
+// a 5s window of 2x fall speed + full collision invincibility, then resets
+// to 0 — the player has to earn it again from scratch.
+const OVERDRIVE_MAX = 100;
+const OVERDRIVE_NEAR_MISS_GAIN = 5;
+const OVERDRIVE_GOLD_GAIN = 2;
+const OVERDRIVE_DURATION = 5; // seconds
+const OVERDRIVE_GOLD_PER_BLOCK = 2; // awarded per Stone/Gas pulverized while active
+
+function addOverdriveMeter(amount) {
+  if (state.overdriveActive) return; // already maxed out and running — nothing to accumulate
+  state.overdriveMeter = clamp(state.overdriveMeter + amount, 0, OVERDRIVE_MAX);
+  if (state.overdriveMeter >= OVERDRIVE_MAX) triggerOverdrive();
+}
+
+function triggerOverdrive() {
+  state.overdriveActive = true;
+  state.overdriveTimer = OVERDRIVE_DURATION;
+  state.overdriveMeter = 0;
+  triggerScreenShake(10, 0.25);
+  vibrateHaptic(30);
+  playSound('overdrive');
+}
+
+function updateOverdrive(dt) {
+  if (!state.overdriveActive) return;
+  state.overdriveTimer -= dt;
+  if (state.overdriveTimer <= 0) {
+    state.overdriveActive = false;
+    state.overdriveTimer = 0;
   }
 }
 
@@ -797,6 +1013,20 @@ const DRILL_APPEARANCE = [
 ];
 
 function getDrillAppearance() {
+  // Overdrive fully overrides the drill's look for its 5s window — an
+  // intense yellow/white glow that reads as "invincible" at a glance,
+  // regardless of active Drill Class or upgrade tier.
+  if (state.overdriveActive) {
+    return {
+      body: '#fffde7',
+      nose: '#ffee58',
+      border: '#ffd600',
+      glow: 'rgba(255,255,255,0.95)',
+      glowBlur: 30,
+      borderWidth: 3,
+    };
+  }
+
   const classId = state.selectedClass;
   const glowProgress = clamp(state.fuelUpgradeLevel / FUEL_UPGRADE_MAX_LEVEL, 0, 1); // 0..1 across upgrade levels
 
@@ -940,6 +1170,9 @@ const comboDisplay = document.getElementById('combo-display');
 const biomeDisplay = document.getElementById('biome-display');
 const magnetDisplay = document.getElementById('magnet-display');
 const healthBarInner = document.getElementById('health-bar-inner');
+const overdriveBarOuter = document.getElementById('overdrive-bar-outer');
+const overdriveBarInner = document.getElementById('overdrive-bar-inner');
+const overdriveFlashEl = document.getElementById('overdrive-flash');
 
 const startScreen = document.getElementById('start-screen');
 const gameoverScreen = document.getElementById('gameover-screen');
@@ -948,6 +1181,8 @@ const chestScreen = document.getElementById('chest-screen');
 const museumScreen = document.getElementById('museum-screen');
 const contractsScreen = document.getElementById('contracts-screen');
 const loadoutScreen = document.getElementById('loadout-screen');
+const trailsScreen = document.getElementById('trails-screen');
+const welcomeBackScreen = document.getElementById('welcome-back-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
 
@@ -961,6 +1196,15 @@ const highscoreDisplayEl = document.getElementById('highscore-display');
 const newHighscoreBadge = document.getElementById('new-highscore-badge');
 const fuelUpgradeDescEl = document.getElementById('fuel-upgrade-desc');
 const fuelUpgradeBtn = document.getElementById('fuel-upgrade-btn');
+const coolingUpgradeDescEl = document.getElementById('cooling-upgrade-desc');
+const coolingUpgradeBtn = document.getElementById('cooling-upgrade-btn');
+const thrusterUpgradeDescEl = document.getElementById('thruster-upgrade-desc');
+const thrusterUpgradeBtn = document.getElementById('thruster-upgrade-btn');
+const alloyUpgradeDescEl = document.getElementById('alloy-upgrade-desc');
+const alloyUpgradeBtn = document.getElementById('alloy-upgrade-btn');
+const trailListEl = document.getElementById('trail-list');
+const trailsBankedGoldEl = document.getElementById('trails-banked-gold');
+const welcomeBackGoldEl = document.getElementById('welcome-back-gold');
 const reviveBtn = document.getElementById('revive-btn');
 const doubleGoldBtn = document.getElementById('double-gold-btn');
 const REVIVE_BTN_DEFAULT_TEXT = reviveBtn.textContent;
@@ -1071,29 +1315,76 @@ document.getElementById('fuel-upgrade-btn').addEventListener('click', () => {
   buyFuelUpgrade();
   renderUpgradesScreen();
 });
+document.getElementById('cooling-upgrade-btn').addEventListener('click', () => {
+  buyCoolingUpgrade();
+  renderUpgradesScreen();
+});
+document.getElementById('thruster-upgrade-btn').addEventListener('click', () => {
+  buyThrusterUpgrade();
+  renderUpgradesScreen();
+});
+document.getElementById('alloy-upgrade-btn').addEventListener('click', () => {
+  buyAlloyUpgrade();
+  renderUpgradesScreen();
+});
 
 function openUpgradesScreen() {
   renderUpgradesScreen();
   upgradesScreen.classList.remove('hidden');
 }
 
+// Shared renderer for all four Tech Tree cards — same "Level X/MAX — desc
+// (next: desc)" / "MAX LEVEL" pattern the original Fuel Tank card used.
+function renderUpgradeCard(descEl, btnEl, level, maxLevel, costs, currentLabel, nextLabel) {
+  if (level >= maxLevel) {
+    descEl.textContent = `Level ${level}/${maxLevel} — ${currentLabel}`;
+    btnEl.textContent = 'MAX LEVEL';
+    btnEl.disabled = true;
+  } else {
+    const cost = costs[level];
+    descEl.textContent = `Level ${level}/${maxLevel} — ${currentLabel} (next: ${nextLabel})`;
+    btnEl.textContent = 'Upgrade — ' + cost + ' Gold';
+    btnEl.disabled = state.bankedGold < cost;
+  }
+}
+
 function renderUpgradesScreen() {
   bankedGoldEl.textContent = state.bankedGold;
 
-  const level = state.fuelUpgradeLevel;
   const maxHealthNow = getMaxHealth();
+  renderUpgradeCard(
+    fuelUpgradeDescEl, fuelUpgradeBtn,
+    state.fuelUpgradeLevel, FUEL_UPGRADE_MAX_LEVEL, FUEL_UPGRADE_COSTS,
+    'Max Health ' + maxHealthNow, 'Max Health ' + (maxHealthNow + FUEL_UPGRADE_HEALTH_PER_LEVEL)
+  );
 
-  if (level >= FUEL_UPGRADE_MAX_LEVEL) {
-    fuelUpgradeDescEl.textContent = `Level ${level}/${FUEL_UPGRADE_MAX_LEVEL} — Max Health ${maxHealthNow}`;
-    fuelUpgradeBtn.textContent = 'MAX LEVEL';
-    fuelUpgradeBtn.disabled = true;
-  } else {
-    const cost = FUEL_UPGRADE_COSTS[level];
-    const nextMaxHealth = maxHealthNow + FUEL_UPGRADE_HEALTH_PER_LEVEL;
-    fuelUpgradeDescEl.textContent = `Level ${level}/${FUEL_UPGRADE_MAX_LEVEL} — Max Health ${maxHealthNow} (next: ${nextMaxHealth})`;
-    fuelUpgradeBtn.textContent = 'Upgrade — ' + cost + ' Gold';
-    fuelUpgradeBtn.disabled = state.bankedGold < cost;
-  }
+  const magmaBiome = BIOMES.find((b) => b.name === 'Magma');
+  const coolingNow = getEffectiveFuelMultiplier(magmaBiome).toFixed(2);
+  const coolingNext = lerp(
+    MAGMA_FUEL_MULTIPLIER_STOCK, MAGMA_FUEL_MULTIPLIER_MAX,
+    clamp((state.coolingUpgradeLevel + 1) / COOLING_UPGRADE_MAX_LEVEL, 0, 1)
+  ).toFixed(2);
+  renderUpgradeCard(
+    coolingUpgradeDescEl, coolingUpgradeBtn,
+    state.coolingUpgradeLevel, COOLING_UPGRADE_MAX_LEVEL, COOLING_UPGRADE_COSTS,
+    'Magma Fuel Drain ' + coolingNow + 'x', 'Magma Fuel Drain ' + coolingNext + 'x'
+  );
+
+  const steerNow = getEffectiveSteerSpeed();
+  const steerNext = drill.steerSpeed + (state.thrusterUpgradeLevel + 1) * THRUSTER_SPEED_PER_LEVEL;
+  renderUpgradeCard(
+    thrusterUpgradeDescEl, thrusterUpgradeBtn,
+    state.thrusterUpgradeLevel, THRUSTER_UPGRADE_MAX_LEVEL, THRUSTER_UPGRADE_COSTS,
+    'Steer Speed ' + steerNow, 'Steer Speed ' + steerNext
+  );
+
+  const alloyNow = getAlloyDamageReduction();
+  const alloyNext = (state.alloyUpgradeLevel + 1) * ALLOY_DAMAGE_REDUCTION_PER_LEVEL;
+  renderUpgradeCard(
+    alloyUpgradeDescEl, alloyUpgradeBtn,
+    state.alloyUpgradeLevel, ALLOY_UPGRADE_MAX_LEVEL, ALLOY_UPGRADE_COSTS,
+    '-' + alloyNow + ' Dmg Reduction', '-' + alloyNext + ' Dmg Reduction'
+  );
 }
 
 // ---------- Chest overlay ----------
@@ -1241,6 +1532,52 @@ function renderLoadoutScreen() {
   });
 }
 
+// ---------- Trails overlay (cosmetics) ----------
+document.getElementById('start-trails-btn').addEventListener('click', openTrailsScreen);
+document.getElementById('close-trails-btn').addEventListener('click', () => {
+  trailsScreen.classList.add('hidden');
+});
+
+function openTrailsScreen() {
+  renderTrailsScreen();
+  trailsScreen.classList.remove('hidden');
+}
+
+function renderTrailsScreen() {
+  trailsBankedGoldEl.textContent = state.bankedGold;
+
+  trailListEl.innerHTML = TRAIL_DEFS.map((trail) => {
+    const unlocked = isTrailUnlocked(trail.id);
+    const isSelected = state.selectedTrail === trail.id;
+    const swatchColor = trail.id === 'standard' ? '#6b4423' : trail.color();
+
+    let actionHtml;
+    if (isSelected) {
+      actionHtml = `<button class="trail-select-btn" disabled>Selected</button>`;
+    } else if (unlocked) {
+      actionHtml = `<button class="trail-select-btn" data-trail-id="${trail.id}">Select</button>`;
+    } else {
+      actionHtml = `<button class="trail-select-btn" data-trail-id="${trail.id}">Unlock — ${trail.cost} Gold</button>`;
+    }
+
+    return `
+      <div class="trail-card ${isSelected ? 'active' : ''}">
+        <div class="trail-swatch" style="background:${swatchColor};"></div>
+        <div class="trail-name">${trail.name}</div>
+        ${actionHtml}
+      </div>
+    `;
+  }).join('');
+
+  // re-wire select/unlock buttons since innerHTML was just replaced
+  trailListEl.querySelectorAll('.trail-select-btn[data-trail-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      buyOrSelectTrail(btn.dataset.trailId);
+      renderTrailsScreen();
+    });
+  });
+}
+
 // ---------- Toast notifications ----------
 // A small queue so multiple contracts completing in the same frame don't
 // clobber each other — each message gets its full slide-in/hold/slide-out.
@@ -1330,6 +1667,7 @@ function startGame() {
   world.rows = [];
   world.lastSafeX = Math.floor(COLS / 2);
   world.nextRowToGenerate = 0;
+  world.tombstoneRows = [];
 
   // Class hitbox is locked in for the run, so switching loadouts mid-run
   // (not currently possible — Loadout only opens from the start menu) can
@@ -1354,6 +1692,9 @@ function startGame() {
   state.magnetTimer = 0;
   state.dirtBroken = 0;
   state.pendingContractGold = 0;
+  state.overdriveMeter = 0;
+  state.overdriveActive = false;
+  state.overdriveTimer = 0;
   lastDamageCause = null;
 
   particles.length = 0;
@@ -1368,6 +1709,7 @@ function startGame() {
   museumScreen.classList.add('hidden');
   contractsScreen.classList.add('hidden');
   loadoutScreen.classList.add('hidden');
+  trailsScreen.classList.add('hidden');
   newHighscoreBadge.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 
@@ -1416,7 +1758,7 @@ function endGame(causeOfDeath) {
 function updateDrillSteer(dt) {
   const biome = getBiome(currentDepthMeters());
   const activeClass = getActiveClass();
-  const steerSpeed = drill.steerSpeed * biome.speedMultiplier * activeClass.steerSpeedMultiplier; // Ice = sliding, Plasma = extra agile
+  const steerSpeed = getEffectiveSteerSpeed() * biome.speedMultiplier * activeClass.steerSpeedMultiplier; // Ice = sliding, Plasma = extra agile, Thruster Array = flat bonus
 
   if (input.left && !input.right) drill.vx = -steerSpeed;
   else if (input.right && !input.left) drill.vx = steerSpeed;
@@ -1465,7 +1807,7 @@ function updateCollisions(dt) {
     if (block === DIRT) {
       setBlock(row, col, EMPTY);
       state.dirtBroken += 1;
-      spawnParticles(cellCenterX, cellCenterY, biome.dirtColor, 5);
+      spawnParticles(cellCenterX, cellCenterY, getTrailColor(biome), 5);
       triggerScreenShake(2, 0.06);
       if (Math.random() < DIG_SOUND_CHANCE) playSound('dig');
     } else if (block === GOLD) {
@@ -1473,19 +1815,30 @@ function updateCollisions(dt) {
       // near-miss combo multiplier scales gold payout, min 1 per block
       const goldGain = Math.max(1, Math.round(1 * state.comboMultiplier));
       state.gold += goldGain;
+      addOverdriveMeter(OVERDRIVE_GOLD_GAIN);
       spawnParticles(cellCenterX, cellCenterY, '#ffd700', 10);
       triggerScreenShake(3, 0.08);
       playSound('coin');
     } else if (block === STONE) {
       setBlock(row, col, EMPTY);
-      spawnParticles(cellCenterX, cellCenterY, biome.stoneColor, 8);
-      triggerScreenShake(9, 0.2); // violent shake
-      state.comboMultiplier = 1.0; // getting hit wipes the near-miss streak
-      if (drill.invulnTimer <= 0) {
-        drill.health -= drill.stoneDamage * getActiveClass().damageMultiplier;
-        drill.invulnTimer = 0.35;
-        lastDamageCause = 'Stone Collision';
-        playSound('hit');
+      if (state.overdriveActive) {
+        // Overdrive pulverizes it instead of taking a hit — bigger burst, no damage, bonus gold
+        state.gold += OVERDRIVE_GOLD_PER_BLOCK;
+        spawnParticles(cellCenterX, cellCenterY, biome.stoneColor, 14);
+        spawnParticles(cellCenterX, cellCenterY, '#ffffff', 8);
+        triggerScreenShake(4, 0.1);
+        playSound('pulverize');
+      } else {
+        spawnParticles(cellCenterX, cellCenterY, biome.stoneColor, 8);
+        triggerScreenShake(9, 0.2); // violent shake
+        state.comboMultiplier = 1.0; // getting hit wipes the near-miss streak
+        if (drill.invulnTimer <= 0) {
+          const dmg = Math.max(1, drill.stoneDamage * getActiveClass().damageMultiplier - getAlloyDamageReduction());
+          drill.health -= dmg;
+          drill.invulnTimer = 0.35;
+          lastDamageCause = 'Stone Collision';
+          playSound('hit');
+        }
       }
     } else if (block === CHEST) {
       setBlock(row, col, EMPTY);
@@ -1497,15 +1850,29 @@ function updateCollisions(dt) {
     } else if (block === RELIC) {
       setBlock(row, col, EMPTY);
       collectRelic(cellCenterX, cellCenterY);
+    } else if (block === TOMBSTONE) {
+      // purely decorative — no damage, no reward; the row-crossing toast
+      // (updateTombstones) is the real interaction, this is just tidy-up
+      setBlock(row, col, EMPTY);
+      spawnParticles(cellCenterX, cellCenterY, '#9e9e9e', 4);
     } else if (block === GAS) {
-      state.comboMultiplier = 1.0; // getting hit wipes the near-miss streak
-      explodeGasPocket(row, col);
-      if (drill.invulnTimer <= 0) {
-        drill.health -= drill.stoneDamage * 2 * getActiveClass().damageMultiplier; // Gas Pockets hit twice as hard as Stone
-        drill.invulnTimer = 0.35;
-        lastDamageCause = 'Gas Explosion';
-        playSound('explosion');
-        vibrateHaptic(40);
+      if (state.overdriveActive) {
+        // Overdrive pulverizes it instead of taking a hit — no damage, bonus gold
+        state.gold += OVERDRIVE_GOLD_PER_BLOCK;
+        explodeGasPocket(row, col);
+        spawnParticles(cellCenterX, cellCenterY, '#ffffff', 10);
+        playSound('pulverize');
+      } else {
+        state.comboMultiplier = 1.0; // getting hit wipes the near-miss streak
+        explodeGasPocket(row, col);
+        if (drill.invulnTimer <= 0) {
+          const dmg = Math.max(1, drill.stoneDamage * 2 * getActiveClass().damageMultiplier - getAlloyDamageReduction()); // Gas Pockets hit twice as hard as Stone
+          drill.health -= dmg;
+          drill.invulnTimer = 0.35;
+          lastDamageCause = 'Gas Explosion';
+          playSound('explosion');
+          vibrateHaptic(40);
+        }
       }
     }
   }
@@ -1568,6 +1935,7 @@ function updateMagnet(dt) {
       setBlock(r, c, EMPTY);
       const goldGain = Math.max(1, Math.round(1 * state.comboMultiplier));
       state.gold += goldGain;
+      addOverdriveMeter(OVERDRIVE_GOLD_GAIN);
       spawnParticles(cellCenterX, cellCenterY, '#ffd700', 6);
       playSound('coin');
     }
@@ -1597,7 +1965,8 @@ function updateDrillFall(dt) {
   const depthPixels = Math.max(0, drill.worldY);
   const biomeSpeedMultiplier = 1 + clamp(depthPixels / DEPTH_FOR_MAX_STONE, 0, 1) * 0.6;
   const classSpeedMultiplier = getActiveClass().verticalSpeedMultiplier; // Jackhammer = slower, Plasma = faster
-  drill.worldY += drill.vy * biomeSpeedMultiplier * classSpeedMultiplier * dt;
+  const overdriveSpeedMultiplier = state.overdriveActive ? 2 : 1;
+  drill.worldY += drill.vy * biomeSpeedMultiplier * classSpeedMultiplier * overdriveSpeedMultiplier * dt;
 
   const depthMeters = Math.max(0, Math.floor(drill.worldY / BLOCK));
   if (depthMeters > state.maxDepthReached) state.maxDepthReached = depthMeters;
@@ -1605,10 +1974,19 @@ function updateDrillFall(dt) {
 
 function updateHealth(dt) {
   const biome = getBiome(currentDepthMeters());
-  drill.health -= drill.fuelDrainRate * biome.fuelMultiplier * dt; // Magma = 1.5x drain
+  drill.health -= drill.fuelDrainRate * getEffectiveFuelMultiplier(biome) * dt; // Magma = 1.5x drain, 1.1x at max Cooling
   drill.health = clamp(drill.health, 0, drill.maxHealth);
   if (drill.health <= 0) {
     endGame(lastDamageCause || 'Fuel Starvation');
+  }
+}
+
+function updateTombstones() {
+  const depthNow = currentDepthMeters();
+  while (world.tombstoneRows.length > 0 && world.tombstoneRows[0] <= depthNow) {
+    world.tombstoneRows.shift();
+    const guestId = Math.floor(Math.random() * 9999);
+    queueToast('Guest' + guestId + ' died here!');
   }
 }
 
@@ -1624,6 +2002,8 @@ function update(dt) {
   if (!state.running) return; // a Chest hit inside updateCollisions pauses instantly
   updateNearMissCombo();
   updateMagnet(dt);
+  updateOverdrive(dt);
+  updateTombstones();
   updateContractProgress();
   updateHealth(dt);
 }
@@ -1725,6 +2105,29 @@ function drawGasBlock(screenX, screenY) {
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
 }
 
+// Fallen Miners — a small gray cross/marker. Purely decorative; the real
+// interaction (the toast) fires by depth in updateTombstones(), not contact.
+function drawTombstoneBlock(screenX, screenY) {
+  ctx.fillStyle = '#3a3a3a';
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
+
+  const cx = screenX + BLOCK / 2;
+  const cy = screenY + BLOCK / 2;
+  ctx.strokeStyle = '#c9c9c9';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - BLOCK * 0.28);
+  ctx.lineTo(cx, cy + BLOCK * 0.28);
+  ctx.moveTo(cx - BLOCK * 0.2, cy - BLOCK * 0.08);
+  ctx.lineTo(cx + BLOCK * 0.2, cy - BLOCK * 0.08);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
+}
+
 function render() {
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
 
@@ -1769,6 +2172,10 @@ function render() {
         drawGasBlock(screenX, screenY);
         continue;
       }
+      if (type === TOMBSTONE) {
+        drawTombstoneBlock(screenX, screenY);
+        continue;
+      }
 
       const color = blockColor(type, rowBiome);
       if (!color) continue;
@@ -1794,7 +2201,7 @@ function render() {
   // glow intensity from the Fuel Tank upgrade level
   const drillScreenX = drill.worldX;
   const drillScreenY = drill.worldY - cameraY;
-  const flashing = drill.invulnTimer > 0 && Math.floor(performance.now() / 80) % 2 === 0;
+  const flashing = !state.overdriveActive && drill.invulnTimer > 0 && Math.floor(performance.now() / 80) % 2 === 0;
   const appearance = getDrillAppearance();
 
   if (!flashing && appearance.glow) {
@@ -1842,6 +2249,10 @@ function render() {
   } else {
     healthBarInner.style.background = 'linear-gradient(90deg, #e53935, #ff5252)';
   }
+
+  overdriveBarInner.style.width = (state.overdriveActive ? 100 : state.overdriveMeter) + '%';
+  overdriveBarOuter.classList.toggle('active', state.overdriveActive);
+  overdriveFlashEl.classList.toggle('active', state.overdriveActive);
 }
 
 // ---------- Main loop ----------
@@ -1930,8 +2341,13 @@ function sdkSaveIfAvailable() {
         bankedGold: state.bankedGold,
         highScore: state.highScore,
         fuelUpgradeLevel: state.fuelUpgradeLevel,
+        coolingUpgradeLevel: state.coolingUpgradeLevel,
+        thrusterUpgradeLevel: state.thrusterUpgradeLevel,
+        alloyUpgradeLevel: state.alloyUpgradeLevel,
         relicsFound: state.relicsFound,
         selectedClass: state.selectedClass,
+        unlockedTrails: state.unlockedTrails,
+        selectedTrail: state.selectedTrail,
       }));
     }
   } catch (e) {}
@@ -1952,18 +2368,69 @@ async function sdkLoadAndMergeIfAvailable() {
     if (typeof data.bankedGold === 'number') state.bankedGold = data.bankedGold;
     if (typeof data.highScore === 'number') state.highScore = data.highScore;
     if (typeof data.fuelUpgradeLevel === 'number') state.fuelUpgradeLevel = data.fuelUpgradeLevel;
+    if (typeof data.coolingUpgradeLevel === 'number') state.coolingUpgradeLevel = data.coolingUpgradeLevel;
+    if (typeof data.thrusterUpgradeLevel === 'number') state.thrusterUpgradeLevel = data.thrusterUpgradeLevel;
+    if (typeof data.alloyUpgradeLevel === 'number') state.alloyUpgradeLevel = data.alloyUpgradeLevel;
     if (Array.isArray(data.relicsFound)) state.relicsFound = data.relicsFound;
     if (typeof data.selectedClass === 'string' && DRILL_CLASSES[data.selectedClass]) state.selectedClass = data.selectedClass;
+    if (Array.isArray(data.unlockedTrails) && data.unlockedTrails.includes('standard')) state.unlockedTrails = data.unlockedTrails;
+    if (typeof data.selectedTrail === 'string' && state.unlockedTrails.includes(data.selectedTrail)) state.selectedTrail = data.selectedTrail;
     startHighscoreEl.textContent = 'High Score: ' + state.highScore; // reflect a late-arriving platform save
   } catch (e) {
     // keep whatever local storage / defaults already loaded
   }
 }
 
+// ---------- Offline / idle mining ----------
+// Awards gold for time elapsed since the last visit (capped at 24h), shown
+// via a Welcome Back overlay the player must dismiss before Start is
+// reachable (it's a full-screen .overlay stacked over start-screen — same
+// "nothing behind it is clickable" technique already used by Upgrades/
+// Museum/Contracts/Loadout, not the body.paused SDK-pause lockout, which is
+// reserved for genuine platform pause so its own button-disable rule never
+// has to be carved out for anything else — see the game-plan note on this).
+const OFFLINE_GOLD_PER_HOUR = 10;
+const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_HEARTBEAT_MS = 15000;
+
+function checkOfflineEarnings() {
+  const lastPlayedRaw = storageGet('ec_lastPlayedTimestamp');
+  const now = Date.now();
+  storageSet('ec_lastPlayedTimestamp', String(now)); // stamp immediately so a refresh can't double-count this window
+
+  if (!lastPlayedRaw) return; // first-ever visit — nothing to award, nothing to show
+  const lastPlayed = parseInt(lastPlayedRaw, 10);
+  if (!Number.isFinite(lastPlayed) || lastPlayed <= 0) return;
+
+  const elapsedMs = clamp(now - lastPlayed, 0, OFFLINE_CAP_MS);
+  const earnedGold = Math.floor((elapsedMs / (60 * 60 * 1000)) * OFFLINE_GOLD_PER_HOUR);
+  if (earnedGold <= 0) return;
+
+  syncBankedGold(earnedGold);
+  bankedGoldEl.textContent = state.bankedGold;
+  welcomeBackGoldEl.textContent = earnedGold;
+  welcomeBackScreen.classList.remove('hidden');
+}
+
+document.getElementById('welcome-back-btn').addEventListener('click', () => {
+  welcomeBackScreen.classList.add('hidden');
+});
+
+// Keeps the "last played" timestamp fresh while the tab is open/backgrounded,
+// so the next visit's offline window is measured from the real last moment
+// played, not just from page load.
+setInterval(() => storageSet('ec_lastPlayedTimestamp', String(Date.now())), OFFLINE_HEARTBEAT_MS);
+window.addEventListener('beforeunload', () => storageSet('ec_lastPlayedTimestamp', String(Date.now())));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) storageSet('ec_lastPlayedTimestamp', String(Date.now()));
+});
+
 // Initial idle render (so canvas isn't blank behind the start screen)
 startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 ensureRowsGenerated(20);
 render();
+
+checkOfflineEarnings();
 
 initPlayablesSDK();
 notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above

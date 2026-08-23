@@ -106,6 +106,55 @@ body.paused #gameCanvas {
   transition: width 0.15s ease, background 0.3s ease;
 }
 
+#overdrive-bar-outer {
+  width: 200px;
+  height: 10px;
+  background: rgba(0,0,0,0.5);
+  border: 2px solid #ffd54f;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+#overdrive-bar-inner {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9800, #ffeb3b);
+  transition: width 0.15s ease;
+}
+
+#overdrive-bar-outer.active #overdrive-bar-inner {
+  background: linear-gradient(90deg, #fff176, #ffffff);
+  animation: overdriveBarPulse 0.3s ease-in-out infinite alternate;
+}
+
+@keyframes overdriveBarPulse {
+  from { opacity: 1; }
+  to { opacity: 0.55; }
+}
+
+/* Core Overdrive: pulsing border flash signaling invincibility. Purely
+   decorative — pointer-events:none so it never intercepts input, matching
+   how #pause-overlay/#toast already stay out of the way of real controls. */
+#overdrive-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+#overdrive-flash.active {
+  opacity: 1;
+  animation: overdrivePulse 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes overdrivePulse {
+  from { box-shadow: inset 0 0 30px 10px rgba(255, 235, 59, 0.9); }
+  to   { box-shadow: inset 0 0 60px 20px rgba(255, 255, 255, 0.95); }
+}
+
 .overlay {
   position: absolute;
   top: 0;
@@ -473,6 +522,76 @@ body.paused #gameCanvas {
 }
 
 .class-select-btn:disabled {
+  background: #ffd700;
+  color: #222;
+  cursor: default;
+  opacity: 1;
+}
+
+#start-trails-btn {
+  background: #ec407a;
+}
+
+.trail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 4px;
+}
+
+.trail-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-left: 4px solid #ec407a;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.trail-card.active {
+  border-left-color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.trail-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px 1px currentColor;
+}
+
+.trail-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.trail-select-btn {
+  pointer-events: auto;
+  min-width: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  background: #ec407a;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.1s ease, background 0.2s ease;
+}
+
+.trail-select-btn:active {
+  transform: scale(0.96);
+}
+
+.trail-select-btn:disabled {
   background: #ffd700;
   color: #222;
   cursor: default;

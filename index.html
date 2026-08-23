@@ -22,9 +22,15 @@
     <div id="health-bar-outer">
       <div id="health-bar-inner"></div>
     </div>
+    <div id="overdrive-bar-outer">
+      <div id="overdrive-bar-inner"></div>
+    </div>
   </div>
 
-  <!-- Contract-complete toast -->
+  <!-- Core Overdrive screen-border flash (invincibility signal) -->
+  <div id="overdrive-flash"></div>
+
+  <!-- Contract-complete / Fallen Miners toast -->
   <div id="toast" class="hidden"></div>
 
   <!-- SDK-driven pause overlay (YouTube platform pause, not a player toggle) -->
@@ -43,6 +49,15 @@
     <button id="start-museum-btn">Museum</button>
     <button id="start-loadout-btn">Loadout</button>
     <button id="start-contracts-btn">Daily Contracts</button>
+    <button id="start-trails-btn">Trails</button>
+  </div>
+
+  <!-- Welcome Back / Offline Mining Overlay — shown (stacked over the Start
+       Screen) only when idle gold was earned; blocks Start until dismissed -->
+  <div id="welcome-back-screen" class="overlay hidden">
+    <h1>Welcome Back!</h1>
+    <p>Your rig mined <span id="welcome-back-gold">0</span> Gold while you were away.</p>
+    <button id="welcome-back-btn">Collect</button>
   </div>
 
   <!-- Game Over Screen -->
@@ -61,9 +76,9 @@
     <button id="restart-btn">Restart</button>
   </div>
 
-  <!-- Upgrades Overlay -->
+  <!-- Upgrades Overlay: 4-path Tech Tree -->
   <div id="upgrades-screen" class="overlay hidden">
-    <h1>UPGRADES</h1>
+    <h1>TECH TREE</h1>
     <p>Banked Gold: <span id="banked-gold">0</span></p>
 
     <div class="upgrade-card">
@@ -72,7 +87,33 @@
       <button id="fuel-upgrade-btn">Upgrade — 20 Gold</button>
     </div>
 
+    <div class="upgrade-card">
+      <div class="upgrade-name">Cooling System</div>
+      <div class="upgrade-desc" id="cooling-upgrade-desc">Level 0/5 — Magma Fuel Drain 1.50x</div>
+      <button id="cooling-upgrade-btn">Upgrade — 25 Gold</button>
+    </div>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Thruster Array</div>
+      <div class="upgrade-desc" id="thruster-upgrade-desc">Level 0/5 — Steer Speed 220</div>
+      <button id="thruster-upgrade-btn">Upgrade — 20 Gold</button>
+    </div>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Alloy Plating</div>
+      <div class="upgrade-desc" id="alloy-upgrade-desc">Level 0/5 — -0 Dmg Reduction</div>
+      <button id="alloy-upgrade-btn">Upgrade — 30 Gold</button>
+    </div>
+
     <button id="close-upgrades-btn">Close</button>
+  </div>
+
+  <!-- Trails Overlay (cosmetics) -->
+  <div id="trails-screen" class="overlay hidden">
+    <h1>TRAILS</h1>
+    <p>Banked Gold: <span id="trails-banked-gold">0</span></p>
+    <div class="trail-list" id="trail-list"></div>
+    <button id="close-trails-btn">Close</button>
   </div>
 
   <!-- Chest Overlay (mid-run power-up) -->
