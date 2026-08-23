@@ -456,19 +456,27 @@ body.paused #gameCanvas {
   color: #fff;
 }
 
-#revive-btn { --btn-grad: linear-gradient(135deg, #ffb74d, #ff9800 60%, #e65100); }
-
-#double-gold-btn {
-  --btn-grad: linear-gradient(135deg, #fff59d, #ffd700 60%, #ffa000);
-  color: #222;
-  text-shadow: none; /* dark text needs no dark drop-shadow — would just look muddy */
+/* Game Over screen gets the same Clash Royale-style treatment as the start
+   screen's secondary nav: one consistent bronze/leather color instead of
+   five unrelated hues (orange Revive, yellow 2x Gold, blue Upgrades, purple
+   Museum, red Restart) fighting for attention. Icons (see index.html)
+   differentiate instead. #close-upgrades-btn/#close-museum-btn are a
+   DIFFERENT screen (the Tech Tree/Museum overlays' own Close buttons) and
+   deliberately keep their own color — split out from these so changing the
+   Game Over screen doesn't touch them. */
+#manual-pause-resume-btn,
+#revive-btn,
+#double-gold-btn,
+#upgrades-btn,
+#restart-btn,
+#museum-btn {
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 55%, #3a2c1c);
+  border-color: rgba(255, 213, 130, 0.45);
 }
 
-#upgrades-btn, #close-upgrades-btn { --btn-grad: linear-gradient(135deg, #64b5f6, #1976d2 60%, #0d47a1); }
+#close-upgrades-btn { --btn-grad: linear-gradient(135deg, #64b5f6, #1976d2 60%, #0d47a1); }
 
-#restart-btn { --btn-grad: linear-gradient(135deg, #ef5350, #e53935 60%, #b71c1c); }
-
-#museum-btn, #close-museum-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 60%, #4a148c); }
+#close-museum-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 60%, #4a148c); }
 
 /* Start-screen secondary buttons (Upgrades/Museum/Loadout/Contracts/Trails)
    are deliberately NOT colored per-feature here anymore — see
