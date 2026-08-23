@@ -1636,10 +1636,38 @@ function getDrillAppearance() {
 }
 
 // ---------- Haptics ----------
-// Vibration API is Android-only (iOS Safari has never implemented it); the
-// feature check makes this a silent no-op everywhere else.
+// The Web Vibration API is Android-only — iOS Safari/WKWebView has never
+// implemented it — which means every vibrateHaptic() call in this file was
+// a silent no-op on the one platform this game actually ships to natively.
+// @capacitor/haptics wraps the real Taptic Engine (UIImpactFeedbackGenerator/
+// UINotificationFeedbackGenerator) on native iOS; falls back to the Web
+// Vibration API on web/Android so nothing regresses there. Every existing
+// call site keeps its exact durationMs argument unchanged — only the
+// dispatch here changed, mapping duration to the closest native feedback
+// intensity instead of a literal millisecond count (which native haptics
+// don't take anyway).
+function getHapticsPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics) || null;
+}
+
 function vibrateHaptic(durationMs = 10) {
-  if (hasUserGestured && typeof navigator.vibrate === 'function') {
+  if (!hasUserGestured) return;
+
+  if (isNativeMobile) {
+    const haptics = getHapticsPlugin();
+    if (!haptics) return;
+    try {
+      if (durationMs <= 12) haptics.impact({ style: 'LIGHT' });
+      else if (durationMs <= 22) haptics.impact({ style: 'MEDIUM' });
+      else if (durationMs <= 32) haptics.notification({ type: 'SUCCESS' }); // Overdrive/relic — celebratory
+      else haptics.notification({ type: 'ERROR' }); // Gas Pocket damage — the one "bad" event that vibrates
+    } catch (e) {
+      // best-effort — a failed haptic call never blocks gameplay
+    }
+    return;
+  }
+
+  if (typeof navigator.vibrate === 'function') {
     navigator.vibrate(durationMs);
   }
 }
@@ -1939,6 +1967,62 @@ async function submitGameCenterScore(score) {
   }
 }
 
+// ---------- App Store review prompt ----------
+// SKStoreReviewController is rate-limited by Apple itself (roughly 3
+// prompts per 365 days across ALL apps that ask) — no cooldown needed on
+// our side for that. What IS worth gating ourselves: never ask on a brand
+// new player's very first-ever run (they have no basis to judge the app
+// yet), and only on a genuine new high score — one unambiguous "this just
+// went well" beat, not a random interruption. @capacitor-community/in-app-
+// review wraps requestReview(in:) directly; it may silently decline to
+// show anything at all (Apple's own throttling), which is expected and
+// fine, never treated as an error.
+let reviewPromptedThisSession = false;
+
+function getInAppReviewPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.InAppReview) || null;
+}
+
+async function maybeRequestReview(isFirstRunEver) {
+  if (!isNativeMobile || isFirstRunEver || reviewPromptedThisSession) return;
+  const plugin = getInAppReviewPlugin();
+  if (!plugin) return;
+  reviewPromptedThisSession = true; // set before the call — never ask twice in one session even if this attempt fails
+  try {
+    await plugin.requestReview();
+  } catch (e) {
+    // best-effort — Apple declining to show it is expected, not a failure
+  }
+}
+
+// ---------- Share ----------
+// @capacitor/share on native; falls back to the real Web Share API on web
+// (iOS Safari has supported navigator.share for years, so this isn't a
+// Playables-specific gap the way haptics was) — never a raw "copy link"
+// fallback, since a share sheet that doesn't actually offer to share isn't
+// worth building.
+function getSharePlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Share) || null;
+}
+
+async function shareScore() {
+  const score = currentScore();
+  const shareText = `I just scored ${score} in Endless Core: Mining Rush! Depth: ${state.maxDepthReached}m, Gold: ${state.gold}. Can you beat me?`;
+  const shareUrl = 'https://seantomaslynch-cell.github.io/endless-core/';
+
+  try {
+    if (isNativeMobile) {
+      const share = getSharePlugin();
+      if (!share) return;
+      await share.share({ title: 'Endless Core: Mining Rush', text: shareText, url: shareUrl, dialogTitle: 'Share your run' });
+    } else if (navigator.share) {
+      await navigator.share({ title: 'Endless Core: Mining Rush', text: shareText, url: shareUrl });
+    }
+  } catch (e) {
+    // user cancelling the share sheet throws too — never treated as an error
+  }
+}
+
 // Named (not an anonymous click closure) so it's directly callable by a test
 // harness. Grants the revive ONLY when the ad resolves truthy.
 async function watchAdRevive() {
@@ -1999,6 +2083,7 @@ async function watchAdDoubleGold() {
   }
 }
 doubleGoldBtn.addEventListener('click', watchAdDoubleGold);
+document.getElementById('share-score-btn').addEventListener('click', shareScore);
 
 // ---------- Shared overlay open/close ----------
 // Upgrades/Museum/Contracts/Loadout/Trails are all reachable from either
@@ -2666,7 +2751,10 @@ function endGame(causeOfDeath) {
     state.pendingContractGold > 0 ? '+' + state.pendingContractGold + ' Gold from Daily Contracts' : '';
   highscoreDisplayEl.textContent = 'High Score: ' + state.highScore;
   newHighscoreBadge.classList.add('hidden');
-  updateHighScore();
+  const hadPriorHighScore = state.highScore > 0;
+  if (updateHighScore()) {
+    maybeRequestReview(!hadPriorHighScore); // a genuine "this went well" beat — the right moment to ask, not a random one
+  }
 
   reviveBtn.textContent = REVIVE_BTN_DEFAULT_TEXT;
   reviveBtn.disabled = false;
