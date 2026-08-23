@@ -66,7 +66,7 @@ workflows:
         XCODE_SCHEME: "App"
         # The app's numeric Apple ID (NOT the bundle identifier) — App Store
         # Connect > your app > General > App Information > Apple ID.
-        APP_STORE_APPLE_ID: "CHANGE_ME_numeric_apple_id"
+        APP_STORE_APPLE_ID: "6804358219"
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.zenzrack.endlesscore
