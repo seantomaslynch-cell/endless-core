@@ -164,6 +164,40 @@ function unmuteAudio() {
   if (masterGain) masterGain.gain.value = 1;
 }
 
+// Shared 1-second white-noise buffer, generated once and reused for every
+// noise-based effect below — pure oscillators can't produce "crunch" or
+// "rumble" no matter how they're pitched, which is why dig/hit/explosion
+// previously sounded thin. A short filtered burst from real noise is what
+// actually reads as impact/texture; layered under the existing tone rather
+// than replacing it.
+const noiseBuffer = audioCtx ? (function () {
+  const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return buffer;
+})() : null;
+
+function playNoiseBurst(now, duration, peakGain, filterFreq, filterType, filterQ) {
+  if (!noiseBuffer || !sdkAudioEnabled) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = noiseBuffer;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = filterType;
+  filter.frequency.value = filterFreq;
+  filter.Q.value = filterQ;
+  const gain = audioCtx.createGain();
+  src.connect(filter);
+  filter.connect(gain);
+  gain.connect(masterGain);
+
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(peakGain, now + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+  src.start(now);
+  src.stop(now + duration + 0.02);
+}
+
 // Separate from muteAudio()/unmuteAudio() above (which duck gain to 0 during
 // a rewarded ad): this reflects the YouTube platform's own mute state via
 // ytgame.system.isAudioEnabled()/onAudioEnabledChange. The spec requires
@@ -173,6 +207,15 @@ let sdkAudioEnabled = true;
 
 function applySdkAudioState(enabled) {
   sdkAudioEnabled = !!enabled;
+  // The ambient pad is continuous, not a one-shot like playSound() — it can
+  // already be running when this fires mid-run, so unlike every other sound
+  // it needs an explicit response here instead of just gating future
+  // playSound() calls.
+  if (sdkAudioEnabled && state.running) {
+    ambientPadFadeIn(); // also creates the pad now if it never started (e.g. player began muted)
+  } else if (!sdkAudioEnabled && ambientNodes) {
+    ambientPadFadeOut();
+  }
 }
 
 // Browsers start the context suspended until it's resumed inside a user
@@ -206,26 +249,46 @@ function playSound(type) {
   let peakGain;
 
   if (type === 'coin') {
-    // short sine blip that rises in pitch — a bright "collected" chime
+    // short sine blip that rises in pitch — a bright "collected" chime.
+    // A second voice a fifth above (detuned slightly for width) turns the
+    // single blip into an actual chime instead of a flat beep.
     osc.type = 'sine';
     duration = 0.12;
-    peakGain = 0.25;
+    peakGain = 0.22;
     osc.frequency.setValueAtTime(500, now);
     osc.frequency.exponentialRampToValueAtTime(1300, now + duration * 0.8);
+
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'sine';
+    osc2.connect(gain2);
+    gain2.connect(masterGain);
+    osc2.frequency.setValueAtTime(752, now); // ~perfect fifth above 500Hz
+    osc2.frequency.exponentialRampToValueAtTime(1955, now + duration * 0.8);
+    gain2.gain.setValueAtTime(0.0001, now);
+    gain2.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc2.start(now);
+    osc2.stop(now + duration + 0.02);
   } else if (type === 'hit') {
-    // harsh square wave that drops in pitch — an unmistakable "ouch"
+    // harsh square wave that drops in pitch, PLUS a low filtered noise
+    // thump underneath — the noise layer is what actually reads as
+    // physical impact; the oscillator alone was just a pitched beep.
     osc.type = 'square';
     duration = 0.18;
-    peakGain = 0.28;
+    peakGain = 0.22;
     osc.frequency.setValueAtTime(320, now);
     osc.frequency.exponentialRampToValueAtTime(45, now + duration);
+    playNoiseBurst(now, 0.15, 0.22, 700, 'lowpass', 1);
   } else if (type === 'dig') {
-    // very quiet, very short, low-frequency thump — subtle texture, not noise
+    // quiet low thump plus a very short high-passed noise tick — dirt
+    // breaking should sound gritty, not like a pure tone.
     osc.type = 'sine';
     duration = 0.05;
-    peakGain = 0.05;
+    peakGain = 0.04;
     osc.frequency.setValueAtTime(100, now);
     osc.frequency.exponentialRampToValueAtTime(70, now + duration);
+    playNoiseBurst(now, 0.04, 0.06, 2800, 'bandpass', 1.4);
   } else if (type === 'relic') {
     // high-pitched sine sweep — a bright, unmistakable "rare find" chime
     osc.type = 'sine';
@@ -234,12 +297,15 @@ function playSound(type) {
     osc.frequency.setValueAtTime(1200, now);
     osc.frequency.exponentialRampToValueAtTime(2400, now + duration * 0.6);
   } else if (type === 'explosion') {
-    // low harsh square rumble dropping fast — a heavy "boom" for Gas Pockets
+    // low harsh square rumble dropping fast, layered under a real low-passed
+    // noise blast — a pitched oscillator alone can't sound like an
+    // explosion no matter how it's tuned; noise is what carries the "boom."
     osc.type = 'square';
     duration = 0.35;
-    peakGain = 0.35;
+    peakGain = 0.28;
     osc.frequency.setValueAtTime(150, now);
     osc.frequency.exponentialRampToValueAtTime(20, now + duration);
+    playNoiseBurst(now, 0.4, 0.32, 280, 'lowpass', 0.9);
   } else if (type === 'toast') {
     // tiny upward blip — a soft "ping" for contract-complete notifications
     osc.type = 'sine';
@@ -255,12 +321,14 @@ function playSound(type) {
     osc.frequency.setValueAtTime(220, now);
     osc.frequency.exponentialRampToValueAtTime(1760, now + duration);
   } else if (type === 'pulverize') {
-    // short bright crunch/zap — Overdrive smashing through a Stone/Gas block
+    // short bright crunch/zap plus a high-passed noise crackle — Overdrive
+    // smashing through a Stone/Gas block
     osc.type = 'square';
     duration = 0.09;
-    peakGain = 0.22;
+    peakGain = 0.18;
     osc.frequency.setValueAtTime(900, now);
     osc.frequency.exponentialRampToValueAtTime(200, now + duration);
+    playNoiseBurst(now, 0.08, 0.16, 1900, 'highpass', 1);
   } else {
     return;
   }
@@ -273,6 +341,100 @@ function playSound(type) {
 
   osc.start(now);
   osc.stop(now + duration + 0.02);
+}
+
+// ---------- Audio: ambient pad ----------
+// A continuous low, filtered drone under an active run — the game was
+// otherwise silent between one-shot blips, which is a big part of why it
+// read as "empty" rather than atmospheric. Two detuned sawtooth oscillators
+// through a lowpass filter (detune gives it width/movement instead of a
+// static single tone), with a slow LFO breathing the filter cutoff so it's
+// never perfectly static. Routes through masterGain like every other sound,
+// so muteAudio()/unmuteAudio() (ad breaks) and the platform mute both
+// silence it automatically with zero extra wiring.
+let ambientNodes = null;
+let lastAmbientBiomeName = null;
+
+function ensureAmbientPad() {
+  if (ambientNodes || !audioCtx) return;
+
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.0001;
+  gain.connect(masterGain);
+
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = 400;
+  filter.Q.value = 0.6;
+  filter.connect(gain);
+
+  const osc1 = audioCtx.createOscillator();
+  osc1.type = 'sawtooth';
+  osc1.frequency.value = 55;
+  osc1.connect(filter);
+
+  const osc2 = audioCtx.createOscillator();
+  osc2.type = 'sawtooth';
+  osc2.frequency.value = 55.6; // slight detune — width, not a static tone
+  osc2.connect(filter);
+
+  const lfo = audioCtx.createOscillator();
+  lfo.type = 'sine';
+  lfo.frequency.value = 0.08; // very slow breathing, ~12s cycle
+  const lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = 150; // filter cutoff swings +-150Hz around its base
+  lfo.connect(lfoGain);
+  lfoGain.connect(filter.frequency);
+
+  osc1.start();
+  osc2.start();
+  lfo.start();
+
+  ambientNodes = { gain, filter, osc1, osc2 };
+}
+
+function ambientPadFadeIn() {
+  // Same "zero sound nodes while platform-muted" requirement every other
+  // sound respects (see playSound()'s sdkAudioEnabled check) — without this,
+  // starting/resuming a run while already platform-muted would still spin
+  // up 3 continuous OscillatorNodes, just silenced via gain instead of never
+  // created at all.
+  if (!audioCtx || !sdkAudioEnabled) return;
+  ensureAmbientPad();
+  const now = audioCtx.currentTime;
+  ambientNodes.gain.gain.cancelScheduledValues(now);
+  ambientNodes.gain.gain.setValueAtTime(ambientNodes.gain.gain.value, now);
+  ambientNodes.gain.gain.linearRampToValueAtTime(0.05, now + 1.5);
+  lastAmbientBiomeName = null; // force the next updateAmbientPad() to re-apply biome tone
+}
+
+function ambientPadFadeOut() {
+  if (!audioCtx || !ambientNodes) return;
+  const now = audioCtx.currentTime;
+  ambientNodes.gain.gain.cancelScheduledValues(now);
+  ambientNodes.gain.gain.setValueAtTime(ambientNodes.gain.gain.value, now);
+  ambientNodes.gain.gain.linearRampToValueAtTime(0.0001, now + 0.8);
+}
+
+// Shifts the pad's tone per biome instead of leaving it static for an entire
+// run: Dirt is neutral, Ice brighter/colder (higher filter cutoff, higher
+// pitch), Magma lower and more rumbling (lower cutoff, lower pitch). Cheap
+// to call often — only does real work when the biome actually changed.
+function updateAmbientPad() {
+  if (!ambientNodes || !audioCtx) return;
+  const biome = getBiome(currentDepthMeters());
+  if (biome.name === lastAmbientBiomeName) return;
+  lastAmbientBiomeName = biome.name;
+
+  let targetCutoff = 400;
+  let targetPitch = 55;
+  if (biome.name === 'Ice') { targetCutoff = 900; targetPitch = 65; }
+  else if (biome.name === 'Magma') { targetCutoff = 220; targetPitch = 44; }
+
+  const now = audioCtx.currentTime;
+  ambientNodes.filter.frequency.setTargetAtTime(targetCutoff, now, 2.5);
+  ambientNodes.osc1.frequency.setTargetAtTime(targetPitch, now, 3);
+  ambientNodes.osc2.frequency.setTargetAtTime(targetPitch * 1.011, now, 3);
 }
 
 const DIG_SOUND_CHANCE = 0.2; // "occasionally", not on every single dirt block
@@ -1592,6 +1754,7 @@ async function watchAdRevive() {
     reviveBtn.disabled = false;
     lastFrameTime = performance.now();
     rafId = requestAnimationFrame(loop);
+    ambientPadFadeIn();
   } else {
     console.log('AD: Revive ad failed to load / was not completed');
     reviveBtn.textContent = 'Ad Unavailable — Try Again';
@@ -1811,6 +1974,7 @@ document.getElementById('manual-pause-resume-btn').addEventListener('click', () 
   state.running = true;
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
+  ambientPadFadeIn();
 });
 
 // Reachable from the pause screen (mid-run) or the Game Over screen — both
@@ -2243,6 +2407,7 @@ function startGame() {
 
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
+  ambientPadFadeIn();
 }
 
 function endGame(causeOfDeath) {
@@ -2427,6 +2592,7 @@ function resumeAfterChest() {
   state.running = true;
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
+  ambientPadFadeIn();
 }
 
 const MAGNET_DURATION = 10; // seconds
@@ -2517,6 +2683,7 @@ function update(dt) {
   updateOverdrive(dt);
   updateContractProgress();
   updateHealth(dt);
+  updateAmbientPad(); // no-ops unless the current biome actually changed
 }
 
 // Checks each of today's not-yet-completed contracts against this run's live
@@ -3008,6 +3175,7 @@ function pauseGameLoop() {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
+  ambientPadFadeOut(); // single choke point for manual pause, Chest hit, AND Game Over
 }
 
 // ---------- Platform lifecycle bootstrap (Playables SDK / Capacitor) ----------
