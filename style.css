@@ -211,6 +211,14 @@ body.paused #gameCanvas {
   font-weight: bold;
 }
 
+#start-highscore {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(100, 181, 246, 0.35);
+  border-radius: 20px;
+  padding: 6px 18px;
+  display: inline-block;
+}
+
 #final-score {
   font-size: 18px;
   font-weight: bold;
@@ -237,6 +245,21 @@ body.paused #gameCanvas {
   letter-spacing: 2px;
   margin-bottom: 8px;
   color: #ffd700;
+}
+
+.menu-title h1 {
+  font-size: 42px;
+  letter-spacing: 4px;
+  margin-bottom: 2px;
+  color: #ffd700;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.menu-title-underline {
+  width: 120px;
+  height: 3px;
+  margin: 0 auto 6px;
+  background: linear-gradient(90deg, transparent, #ffd700, transparent);
 }
 
 .overlay p {
@@ -275,6 +298,42 @@ body.paused #gameCanvas {
   transform: none;
 }
 
+/* Start-screen hierarchy: one large primary Play action, five smaller
+   secondary actions in a grid beneath it — replaces the old flat stack of
+   six identically-sized buttons. */
+.overlay .menu-primary-btn {
+  min-width: 260px;
+  padding: 18px 24px;
+  font-size: 18px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #66bb6a, #43a047);
+  box-shadow: 0 4px 16px rgba(67, 160, 71, 0.5);
+  margin-top: 4px;
+}
+
+.menu-secondary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+  margin-top: 10px;
+}
+
+.overlay .menu-secondary-btn {
+  min-width: 0;
+  padding: 12px 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  margin-top: 0;
+}
+
+.overlay .menu-secondary-btn:active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 #revive-btn {
   background: #ff9800;
 }
@@ -284,7 +343,7 @@ body.paused #gameCanvas {
   color: #222;
 }
 
-#upgrades-btn, #close-upgrades-btn, #start-upgrades-btn {
+#upgrades-btn, #close-upgrades-btn {
   background: #2196f3;
 }
 
@@ -292,21 +351,21 @@ body.paused #gameCanvas {
   background: #e53935;
 }
 
-#museum-btn, #start-museum-btn, #close-museum-btn {
+#museum-btn, #close-museum-btn {
   background: #7b1fa2;
 }
 
-#start-upgrades-btn, #start-museum-btn, #start-contracts-btn, #start-loadout-btn {
-  min-width: 260px;
-  padding: 10px 20px;
-  font-size: 13px;
-}
+/* Start-screen secondary buttons (Upgrades/Museum/Loadout/Contracts/Trails)
+   are deliberately NOT colored per-feature here anymore — see
+   .overlay .menu-secondary-btn above, which gives them a uniform muted
+   look as a group. The Close button on each respective overlay keeps its
+   own accent color below. */
 
-#start-contracts-btn, #close-contracts-btn {
+#close-contracts-btn {
   background: #388e3c;
 }
 
-#start-loadout-btn, #close-loadout-btn {
+#close-loadout-btn {
   background: #00838f;
 }
 
@@ -532,9 +591,6 @@ body.paused #gameCanvas {
   opacity: 1;
 }
 
-#start-trails-btn {
-  background: #ec407a;
-}
 
 .trail-list {
   display: flex;

@@ -40,16 +40,21 @@
 
   <!-- Start Screen -->
   <div id="start-screen" class="overlay">
-    <h1>ENDLESS CORE</h1>
+    <div class="menu-title">
+      <h1>ENDLESS CORE</h1>
+      <div class="menu-title-underline"></div>
+    </div>
     <p>Drill down. Avoid stone. Grab gold.</p>
     <p class="hint">Hold LEFT / RIGHT side of the screen to steer.</p>
     <p id="start-highscore">High Score: 0</p>
-    <button id="start-btn">Start Drilling</button>
-    <button id="start-upgrades-btn">Upgrades</button>
-    <button id="start-museum-btn">Museum</button>
-    <button id="start-loadout-btn">Loadout</button>
-    <button id="start-contracts-btn">Daily Contracts</button>
-    <button id="start-trails-btn">Trails</button>
+    <button id="start-btn" class="menu-primary-btn">Start Drilling</button>
+    <div class="menu-secondary-grid">
+      <button id="start-upgrades-btn" class="menu-secondary-btn">Upgrades</button>
+      <button id="start-museum-btn" class="menu-secondary-btn">Museum</button>
+      <button id="start-loadout-btn" class="menu-secondary-btn">Loadout</button>
+      <button id="start-contracts-btn" class="menu-secondary-btn">Daily Contracts</button>
+      <button id="start-trails-btn" class="menu-secondary-btn">Trails</button>
+    </div>
   </div>
 
   <!-- Welcome Back / Offline Mining Overlay — shown (stacked over the Start
