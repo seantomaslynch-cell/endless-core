@@ -93,6 +93,16 @@ body.paused #gameCanvas {
   color: #4dd0e1;
 }
 
+#shield-display {
+  font-size: 15px;
+  color: #64b5f6;
+}
+
+#score-boost-display {
+  font-size: 15px;
+  color: #ffd700;
+}
+
 #health-bar-outer {
   width: 200px;
   height: 16px;
@@ -177,6 +187,36 @@ body.paused #gameCanvas {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Same corner/size/style as #pause-btn (menu vs. gameplay share the
+   convention) — this one lives on the start screen instead, so it's a
+   sibling of #start-hud rather than #hud, and needs its own z-index since
+   #start-screen's other children are laid out via flex, not absolute. */
+#settings-btn {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(12px + env(safe-area-inset-right));
+  z-index: 2;
+  min-width: 0; /* .overlay button's own min-width:260px would otherwise stretch this into an oval, not a circle */
+  width: 40px;
+  height: 40px;
+  padding: 0; /* .overlay button's own 15px/20px padding would otherwise crowd out the 40px box entirely */
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#settings-btn:active {
+  transform: scale(0.92);
 }
 
 .overlay {
@@ -1076,4 +1116,124 @@ body.paused #gameCanvas {
 .pass-claim-btn:active {
   transform: scale(0.95);
   filter: brightness(0.92);
+}
+
+/* ---------- Settings overlay ---------- */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 300px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.settings-label {
+  font-size: 15px;
+  font-weight: bold;
+}
+
+/* .overlay prefix required — a bare class loses to the shared
+   ".overlay button" default (class+element beats a bare class), the same
+   specificity bug already found and fixed on .class-select-btn/
+   .trail-select-btn/.pass-claim-btn earlier this project. */
+.overlay .settings-toggle {
+  --btn-grad: linear-gradient(135deg, #7ed67f, #43a047 60%, #2e7d32);
+  pointer-events: auto;
+  min-width: 64px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 20px;
+  margin-top: 0;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--btn-grad);
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.15s ease;
+}
+
+.settings-toggle:active {
+  transform: scale(0.94);
+}
+
+/* "Off" state gets its own muted gray rather than reusing green/red — this
+   is a neutral preference toggle, not a success/danger state. */
+.settings-toggle.is-off {
+  --btn-grad: linear-gradient(135deg, #6b6b6b, #3a3a3a);
+}
+
+/* ---------- Achievements overlay ---------- */
+.achievement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+  max-height: 48vh;
+  overflow-y: auto;
+  touch-action: pan-y; /* same reasoning as .pass-tier-list — the one other overlay with more content than reliably fits */
+  margin-top: 2px;
+}
+
+.achievement-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-left: 4px solid #6b6b6b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.achievement-item.unlocked {
+  border-left-color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+}
+
+.achievement-item.locked {
+  opacity: 0.6;
+}
+
+.achievement-icon {
+  font-size: 22px;
+  width: 30px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.achievement-text {
+  flex: 1;
+}
+
+.achievement-name {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.achievement-desc {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.achievement-check {
+  font-size: 16px;
+  color: #81c784;
+  font-weight: bold;
+  flex-shrink: 0;
 }

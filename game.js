@@ -164,6 +164,23 @@ function unmuteAudio() {
   if (masterGain) masterGain.gain.value = 1;
 }
 
+// Player-preference mute (Settings screen), deliberately separate from
+// muteAudio()/unmuteAudio() above (SDK pause / ad-watching) rather than a
+// shared refactor — those two are already shipped and verified, and this
+// is the one additional gate that needs to compose with them without
+// risking a regression there. Restoring audio only when nothing else is
+// currently suppressing it (isPaused / platform mute) avoids the one real
+// edge case: unmuting mid-SDK-pause would otherwise fight handleSdkPause()'s
+// own duck.
+function applyAudioMutePreference() {
+  if (!masterGain) return;
+  if (state.audioMuted) {
+    masterGain.gain.value = 0;
+  } else if (!isPaused && sdkAudioEnabled) {
+    masterGain.gain.value = 1;
+  }
+}
+
 // Shared 1-second white-noise buffer, generated once and reused for every
 // noise-based effect below — pure oscillators can't produce "crunch" or
 // "rumble" no matter how they're pitched, which is why dig/hit/explosion
@@ -939,8 +956,49 @@ function safeGoldChance(depthPixels) {
   return lerp(0.08, 0.03, t);
 }
 
+// Scripted "moment" — a short, recognizable set-piece breaking up pure
+// procedural repetition (the same idea behind Temple Run 2's zip lines/mine
+// carts), implemented as safely as possible: a pure function of rowIndex,
+// so every row's shaft-or-not status is deterministic and consistent with
+// zero cross-row state to get wrong. Never inside the onboarding safe zone.
+const GOLD_RUSH_SHAFT_INTERVAL_M = 500; // every 500m of depth
+const GOLD_RUSH_SHAFT_LENGTH_M = 8;     // an 8-row burst
+
+function isGoldRushShaftRow(rowIndex) {
+  if (rowIndex < SAFE_ZONE_ROWS) return false;
+  return (rowIndex % GOLD_RUSH_SHAFT_INTERVAL_M) < GOLD_RUSH_SHAFT_LENGTH_M;
+}
+
+// Toasts once on the false->true transition (entering a shaft), not every
+// frame while inside one — the terrain itself already reads as the moment;
+// this just makes sure the player consciously notices it, matching the
+// weekend bonus's own "make it noticed, not just silently better" toast.
+let wasInGoldRushShaft = false;
+
+function updateGoldRushShaftIndicator() {
+  const inShaft = isGoldRushShaftRow(Math.floor(drill.worldY / BLOCK));
+  if (inShaft && !wasInGoldRushShaft) {
+    queueToast('💰 Gold Rush Shaft!');
+    vibrateHaptic(20);
+  }
+  wasInGoldRushShaft = inShaft;
+}
+
 function generateRow(rowIndex) {
   const inSafeZone = rowIndex < SAFE_ZONE_ROWS;
+  const row = new Array(COLS);
+
+  if (isGoldRushShaftRow(rowIndex)) {
+    // Dense gold, zero stone/gas/hazards — every column is safe, so
+    // world.lastSafeX simply stays wherever it already was and the normal
+    // random-walk safe path resumes from there once the shaft ends.
+    for (let x = 0; x < COLS; x++) {
+      row[x] = Math.random() < 0.55 ? GOLD : DIRT;
+    }
+    world.rows[rowIndex] = row;
+    return;
+  }
+
   // Ramp restarts its own "depth" clock at the safe zone's edge, so the
   // eased density curve climbs from 0 again at row 100 instead of resuming
   // already ~75% ramped-in (which would read as a difficulty cliff right at
@@ -948,7 +1006,6 @@ function generateRow(rowIndex) {
   const rampDepthPixels = Math.max(0, (rowIndex - SAFE_ZONE_ROWS) * BLOCK);
   const threshold = stoneThreshold(rampDepthPixels);
   const goldChanceHere = goldChance(rampDepthPixels);
-  const row = new Array(COLS);
 
   for (let x = 0; x < COLS; x++) {
     const n = NoiseGen.noise2D(x * NOISE_SCALE_X, rowIndex * NOISE_SCALE_Y);
@@ -1044,6 +1101,11 @@ const state = {
   passSeasonStart: loadOrInitPassSeasonStart(), // ms epoch, persisted
   passSeasonNumber: parseInt(storageGet('ec_passSeasonNumber') || '1', 10),
   loginStreak: parseInt(storageGet('ec_loginStreak') || '0', 10), // consecutive-day count, persisted
+  lifetimeGoldEarned: parseInt(storageGet('ec_lifetimeGoldEarned') || '0', 10), // monotonically increasing — never decreases when gold is spent, unlike bankedGold; drives Achievements
+  bestDepthEver: parseInt(storageGet('ec_bestDepthEver') || '0', 10), // separate from highScore, which is a composite depth+gold number
+  contractsCompletedLifetime: parseInt(storageGet('ec_contractsCompletedLifetime') || '0', 10),
+  audioMuted: storageGet('ec_audioMuted') === 'true', // player preference, distinct from the platform mute/SDK mute channels
+  hapticsDisabled: storageGet('ec_hapticsDisabled') === 'true',
   // Reserved for the future paid track — always false/empty until a real IAP
   // purchase flow exists to set them (see unlockPassPremium()). Persisted
   // now so the shape is already correct; nothing sets these yet.
@@ -1053,6 +1115,8 @@ const state = {
   startTime: 0,
   comboMultiplier: 1.0,
   magnetTimer: 0, // seconds remaining on the Chest's gold-magnet buff
+  shieldTimer: 0, // seconds remaining on the Chest's shield buff
+  scoreBoostTimer: 0, // seconds remaining on the Chest's 2x score buff
   dirtBroken: 0, // this run's count, feeds the "Break N Dirt blocks" contract
   pendingContractGold: 0, // bonus gold from contracts completed this run, banked at endGame()
   overdriveMeter: 0, // 0..OVERDRIVE_MAX, built from near-misses/gold
@@ -1067,7 +1131,27 @@ function computeScore(depthMeters, gold) {
 }
 
 function currentScore() {
-  return computeScore(state.maxDepthReached, state.gold);
+  const base = computeScore(state.maxDepthReached, state.gold);
+  return state.scoreBoostTimer > 0 ? Math.round(base * 2) : base;
+}
+
+// ---------- Weekend Gold Rush (live-ops, no backend needed) ----------
+// A real, currently-active bonus rather than a speculative "event calendar"
+// framework — there's no server to drive a real content calendar from (this
+// whole game is client-only/localStorage), so building a generic scheduling
+// system ahead of having anything to schedule would just be unused
+// infrastructure. This is the same PATTERN top games use (a recurring
+// bonus window players learn to expect) implemented as directly as
+// possible: local device date, no server round-trip required.
+const WEEKEND_GOLD_MULTIPLIER = 1.5;
+
+function isWeekendGoldRushActive() {
+  const day = new Date().getDay(); // 0 = Sunday, 6 = Saturday, local device time
+  return day === 0 || day === 6;
+}
+
+function applyWeekendGoldBonus(goldAmount) {
+  return isWeekendGoldRushActive() ? Math.round(goldAmount * WEEKEND_GOLD_MULTIPLIER) : goldAmount;
 }
 
 // ---------- Upgrades: Expanded Tech Tree ----------
@@ -1397,8 +1481,7 @@ function claimPassTier(tier) {
 
   const reward = PASS_REWARDS[tier - 1];
   if (reward.type === 'gold') {
-    state.bankedGold += reward.amount;
-    storageSet('ec_bankedGold', String(state.bankedGold));
+    syncBankedGold(reward.amount);
   } else if (reward.type === 'trail' && !state.unlockedTrails.includes(reward.trailId)) {
     state.unlockedTrails.push(reward.trailId);
     storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
@@ -1419,8 +1502,7 @@ function claimPassPremiumTier(tier) {
   const reward = PASS_REWARDS[tier - 1].premiumReward;
   if (!reward) return;
   if (reward.type === 'gold') {
-    state.bankedGold += reward.amount;
-    storageSet('ec_bankedGold', String(state.bankedGold));
+    syncBankedGold(reward.amount);
   } else if (reward.type === 'trail' && !state.unlockedTrails.includes(reward.trailId)) {
     state.unlockedTrails.push(reward.trailId);
     storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
@@ -1651,7 +1733,7 @@ function getHapticsPlugin() {
 }
 
 function vibrateHaptic(durationMs = 10) {
-  if (!hasUserGestured) return;
+  if (!hasUserGestured || state.hapticsDisabled) return;
 
   if (isNativeMobile) {
     const haptics = getHapticsPlugin();
@@ -1777,6 +1859,8 @@ const scoreDisplay = document.getElementById('score-display');
 const comboDisplay = document.getElementById('combo-display');
 const biomeDisplay = document.getElementById('biome-display');
 const magnetDisplay = document.getElementById('magnet-display');
+const shieldDisplay = document.getElementById('shield-display');
+const scoreBoostDisplay = document.getElementById('score-boost-display');
 const healthBarInner = document.getElementById('health-bar-inner');
 const overdriveBarOuter = document.getElementById('overdrive-bar-outer');
 const overdriveBarInner = document.getElementById('overdrive-bar-inner');
@@ -1791,6 +1875,8 @@ const contractsScreen = document.getElementById('contracts-screen');
 const loadoutScreen = document.getElementById('loadout-screen');
 const trailsScreen = document.getElementById('trails-screen');
 const passScreen = document.getElementById('pass-screen');
+const settingsScreen = document.getElementById('settings-screen');
+const achievementsScreen = document.getElementById('achievements-screen');
 const welcomeBackScreen = document.getElementById('welcome-back-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
@@ -1869,7 +1955,37 @@ function showRewardedVideo(rewardId) {
 
 const REWARD_ID_REVIVE = 'endlesscore-revive';
 const REWARD_ID_DOUBLE_GOLD = 'endlesscore-2xgold';
-const REWARD_ID_MAGNET = 'endlesscore-magnet';
+
+// Chest power-ups — previously Magnet was the only thing a Supply Cache
+// could grant. Endless runners with real power-up variety (Subway Surfers'
+// jetpack/magnet/multiplier roster) give players a different reason to open
+// every cache instead of the same single choice every time. One is rolled
+// randomly per Chest; each still follows the exact "watch ad to activate or
+// skip" shape the original Magnet used.
+const CHEST_POWERUPS = {
+  MAGNET: {
+    id: 'MAGNET',
+    duration: 10,
+    desc: 'Auto-collects nearby Gold for a while.',
+    adBtnLabel: (d) => `🧲 Watch Ad to Activate Magnet (${d}s)`,
+    rewardId: 'endlesscore-magnet',
+  },
+  SHIELD: {
+    id: 'SHIELD',
+    duration: 8,
+    desc: 'Immune to Stone & Gas damage for a while.',
+    adBtnLabel: (d) => `🛡️ Watch Ad to Activate Shield (${d}s)`,
+    rewardId: 'endlesscore-shield',
+  },
+  SCORE_BOOST: {
+    id: 'SCORE_BOOST',
+    duration: 12,
+    desc: '2x Score from Gold & Depth for a while.',
+    adBtnLabel: (d) => `⭐ Watch Ad to Activate 2x Score (${d}s)`,
+    rewardId: 'endlesscore-scoreboost',
+  },
+};
+const CHEST_POWERUP_IDS = Object.keys(CHEST_POWERUPS);
 
 // AdMob (native ads on iOS, via @capacitor-community/admob). Real ad unit
 // IDs from the account — these serve real ads and count toward real
@@ -2105,6 +2221,8 @@ function openOverlay(screenEl) {
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
   passScreen.classList.add('hidden');
+  settingsScreen.classList.add('hidden');
+  achievementsScreen.classList.add('hidden');
   startScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   screenEl.classList.remove('hidden');
@@ -2134,6 +2252,96 @@ function updateStartScreenHud() {
   const hasClaimable = PASS_REWARDS.some((r) => r.tier <= currentTier && !state.passClaimedTiers.includes(r.tier));
   passClaimBadgeEl.classList.toggle('hidden', !hasClaimable);
 }
+
+// ---------- Settings overlay ----------
+const settingsSoundToggle = document.getElementById('settings-sound-toggle');
+const settingsHapticsToggle = document.getElementById('settings-haptics-toggle');
+
+document.getElementById('settings-btn').addEventListener('click', openSettingsScreen);
+document.getElementById('close-settings-btn').addEventListener('click', () => {
+  closeOverlay(settingsScreen);
+});
+
+function openSettingsScreen() {
+  renderSettingsScreen();
+  openOverlay(settingsScreen);
+}
+
+function renderSettingsScreen() {
+  settingsSoundToggle.textContent = state.audioMuted ? 'Off' : 'On';
+  settingsSoundToggle.classList.toggle('is-off', state.audioMuted);
+  settingsHapticsToggle.textContent = state.hapticsDisabled ? 'Off' : 'On';
+  settingsHapticsToggle.classList.toggle('is-off', state.hapticsDisabled);
+}
+
+settingsSoundToggle.addEventListener('click', () => {
+  state.audioMuted = !state.audioMuted;
+  storageSet('ec_audioMuted', String(state.audioMuted));
+  applyAudioMutePreference();
+  renderSettingsScreen();
+});
+
+settingsHapticsToggle.addEventListener('click', () => {
+  state.hapticsDisabled = !state.hapticsDisabled;
+  storageSet('ec_hapticsDisabled', String(state.hapticsDisabled));
+  renderSettingsScreen();
+});
+
+// ---------- Achievements overlay ----------
+// Lifetime completionist goals, deliberately separate from Game Center
+// (which may not even be enabled yet, and is gated on the app owner's own
+// App Store Connect setup) — this always has something to show regardless
+// of that status. No Gold/reward attached to any of these on purpose, to
+// keep this pass scoped to "give players something to track," not a second
+// reward-economy surface layered on top of Season Pass + Contracts.
+const ACHIEVEMENT_DEFS = [
+  { id: 'depth_100', icon: '🥉', name: 'First Descent', desc: 'Reach 100m depth', check: () => state.bestDepthEver >= 100 },
+  { id: 'depth_1000', icon: '⛏️', name: 'Going Deep', desc: 'Reach 1000m depth', check: () => state.bestDepthEver >= 1000 },
+  { id: 'depth_3000', icon: '🏔️', name: 'Core Breaker', desc: 'Reach 3000m depth', check: () => state.bestDepthEver >= 3000 },
+  { id: 'gold_1000', icon: '💰', name: 'Gold Collector', desc: 'Earn 1,000 lifetime Gold', check: () => state.lifetimeGoldEarned >= 1000 },
+  { id: 'gold_10000', icon: '💎', name: 'Gold Baron', desc: 'Earn 10,000 lifetime Gold', check: () => state.lifetimeGoldEarned >= 10000 },
+  { id: 'relics_all', icon: '🏺', name: 'Museum Curator', desc: 'Collect all 5 Relics', check: () => state.relicsFound.length >= 5 },
+  { id: 'contracts_20', icon: '📋', name: 'Contractor', desc: 'Complete 20 Daily Contracts', check: () => state.contractsCompletedLifetime >= 20 },
+  { id: 'streak_7', icon: '🔥', name: 'Dedicated', desc: 'Reach a 7-day login streak', check: () => state.loginStreak >= 7 },
+];
+
+const achievementsCountEl = document.getElementById('achievements-count');
+const achievementListEl = document.getElementById('achievement-list');
+
+// Opened FROM Museum (nested), not from the start screen directly — the
+// generic openOverlay()/closeOverlay() pair only knows how to return to
+// start-screen or gameover-screen, so this uses its own direct show/hide
+// instead of fighting that mechanism for a case it wasn't built for.
+function openAchievementsScreen() {
+  renderAchievementsScreen();
+  museumScreen.classList.add('hidden');
+  achievementsScreen.classList.remove('hidden');
+}
+
+function renderAchievementsScreen() {
+  const unlockedCount = ACHIEVEMENT_DEFS.filter((a) => a.check()).length;
+  achievementsCountEl.textContent = unlockedCount + ' / ' + ACHIEVEMENT_DEFS.length + ' Unlocked';
+
+  achievementListEl.innerHTML = ACHIEVEMENT_DEFS.map((a) => {
+    const done = a.check();
+    return `
+      <div class="achievement-item ${done ? 'unlocked' : 'locked'}">
+        <div class="achievement-icon">${done ? a.icon : '🔒'}</div>
+        <div class="achievement-text">
+          <div class="achievement-name">${a.name}</div>
+          <div class="achievement-desc">${a.desc}</div>
+        </div>
+        ${done ? '<div class="achievement-check">✓</div>' : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+document.getElementById('open-achievements-btn').addEventListener('click', openAchievementsScreen);
+document.getElementById('close-achievements-btn').addEventListener('click', () => {
+  achievementsScreen.classList.add('hidden');
+  museumScreen.classList.remove('hidden');
+});
 
 document.getElementById('upgrades-btn').addEventListener('click', openUpgradesScreen);
 document.getElementById('start-upgrades-btn').addEventListener('click', openUpgradesScreen);
@@ -2221,39 +2429,45 @@ function renderUpgradesScreen() {
 // ---------- Chest overlay ----------
 const chestAdBtn = document.getElementById('chest-ad-btn');
 const chestSkipBtn = document.getElementById('chest-skip-btn');
-const CHEST_AD_BTN_DEFAULT_TEXT = chestAdBtn.textContent;
+const chestPowerupDescEl = document.getElementById('chest-powerup-desc');
 
-// Named for the same reason as watchAdRevive(); grants the magnet buff only
-// on a truthy resolve.
-async function watchAdMagnet() {
+let currentChestPowerupId = 'MAGNET';
+let currentChestAdBtnLabel = '';
+
+// Named for the same reason as watchAdRevive(); grants the rolled power-up
+// only on a truthy resolve.
+async function watchAdChestPowerup() {
   if (chestAdBtn.disabled) return;
   chestAdBtn.disabled = true;
   chestSkipBtn.disabled = true;
   chestAdBtn.textContent = 'Loading Ad...';
 
-  const watched = await showRewardedVideo(REWARD_ID_MAGNET);
+  const powerup = CHEST_POWERUPS[currentChestPowerupId];
+  const watched = await showRewardedVideo(powerup.rewardId);
 
   chestAdBtn.disabled = false;
   chestSkipBtn.disabled = false;
 
   if (watched) {
-    console.log('AD: Magnet ad watched — activating 10s gold magnet');
-    state.magnetTimer = MAGNET_DURATION;
-    chestAdBtn.textContent = CHEST_AD_BTN_DEFAULT_TEXT;
+    console.log('AD: ' + powerup.id + ' ad watched — activating for ' + powerup.duration + 's');
+    if (powerup.id === 'MAGNET') state.magnetTimer = powerup.duration;
+    else if (powerup.id === 'SHIELD') state.shieldTimer = powerup.duration;
+    else if (powerup.id === 'SCORE_BOOST') state.scoreBoostTimer = powerup.duration;
+    chestAdBtn.textContent = currentChestAdBtnLabel;
     resumeAfterChest();
   } else {
-    console.log('AD: Magnet ad failed to load / was not completed');
+    console.log('AD: ' + powerup.id + ' ad failed to load / was not completed');
     chestAdBtn.textContent = 'Ad Unavailable — Try Again';
     chestAdBtn.disabled = true;
     chestSkipBtn.disabled = true;
     setTimeout(() => {
-      chestAdBtn.textContent = CHEST_AD_BTN_DEFAULT_TEXT;
+      chestAdBtn.textContent = currentChestAdBtnLabel;
       chestAdBtn.disabled = false;
       chestSkipBtn.disabled = false;
     }, 1500);
   }
 }
-chestAdBtn.addEventListener('click', watchAdMagnet);
+chestAdBtn.addEventListener('click', watchAdChestPowerup);
 
 chestSkipBtn.addEventListener('click', () => {
   if (chestSkipBtn.disabled) return;
@@ -2302,6 +2516,8 @@ function goToMainMenu() {
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
   passScreen.classList.add('hidden');
+  settingsScreen.classList.add('hidden');
+  achievementsScreen.classList.add('hidden');
   pauseBtn.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
   startScreen.classList.remove('hidden');
@@ -2600,12 +2816,22 @@ function showNextToast() {
 }
 
 function syncBankedGold(extra) {
-  state.bankedGold += Math.floor(extra);
+  const amount = Math.floor(extra);
+  state.bankedGold += amount;
   storageSet('ec_bankedGold', String(state.bankedGold));
+  if (amount > 0) {
+    state.lifetimeGoldEarned += amount;
+    storageSet('ec_lifetimeGoldEarned', String(state.lifetimeGoldEarned));
+  }
 }
 
 // Persists a new high score if the current run beat it. Returns true if a record was set.
 function updateHighScore() {
+  if (state.maxDepthReached > state.bestDepthEver) {
+    state.bestDepthEver = state.maxDepthReached;
+    storageSet('ec_bestDepthEver', String(state.bestDepthEver));
+  }
+
   const score = currentScore();
   finalScoreEl.textContent = 'Score: ' + score;
   if (score > state.highScore) {
@@ -2685,6 +2911,8 @@ function startGame() {
   state.startTime = performance.now();
   state.comboMultiplier = 1.0;
   state.magnetTimer = 0;
+  state.shieldTimer = 0;
+  state.scoreBoostTimer = 0;
   state.dirtBroken = 0;
   state.pendingContractGold = 0;
   state.overdriveMeter = 0;
@@ -2696,6 +2924,7 @@ function startGame() {
   shakeTimer = 0;
   shakeMagnitude = 0;
   awardedNearMissCells = new Set();
+  wasInGoldRushShaft = false;
 
   startScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
@@ -2706,6 +2935,8 @@ function startGame() {
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
   passScreen.classList.add('hidden');
+  settingsScreen.classList.add('hidden');
+  achievementsScreen.classList.add('hidden');
   manualPauseScreen.classList.add('hidden');
   newHighscoreBadge.classList.add('hidden');
   pauseBtn.classList.remove('hidden');
@@ -2723,7 +2954,13 @@ function startGame() {
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
   ambientPadFadeIn();
+
+  if (isWeekendGoldRushActive() && !weekendBonusToastShown) {
+    weekendBonusToastShown = true; // once per session — a live-ops bonus should be noticed, not nagged about on every restart
+    queueToast('🎉 Weekend Gold Rush! 1.5x Gold all weekend');
+  }
 }
+let weekendBonusToastShown = false;
 
 function endGame(causeOfDeath) {
   pauseGameLoop();
@@ -2823,7 +3060,7 @@ function updateCollisions(dt) {
     } else if (block === GOLD) {
       setBlock(row, col, EMPTY);
       // near-miss combo multiplier scales gold payout, min 1 per block
-      const goldGain = Math.max(1, Math.round(1 * state.comboMultiplier));
+      const goldGain = applyWeekendGoldBonus(Math.max(1, Math.round(1 * state.comboMultiplier)));
       state.gold += goldGain;
       addOverdriveMeter(OVERDRIVE_GOLD_GAIN);
       spawnParticles(cellCenterX, cellCenterY, '#ffd700', 10);
@@ -2902,6 +3139,12 @@ function explodeGasPocket(centerRow, centerCol) {
 // Chest blocks pause the run for a mid-run "supply cache" choice: watch an
 // ad for a timed gold magnet, or skip and keep going immediately.
 function openChestOverlay() {
+  currentChestPowerupId = CHEST_POWERUP_IDS[Math.floor(Math.random() * CHEST_POWERUP_IDS.length)];
+  const powerup = CHEST_POWERUPS[currentChestPowerupId];
+  currentChestAdBtnLabel = powerup.adBtnLabel(powerup.duration);
+  chestAdBtn.textContent = currentChestAdBtnLabel;
+  chestPowerupDescEl.textContent = powerup.desc;
+
   pauseGameLoop();
   chestScreen.classList.remove('hidden');
 }
@@ -2939,13 +3182,31 @@ function updateMagnet(dt) {
       if (Math.hypot(cellCenterX - drillCenterX, cellCenterY - drillCenterY) > radiusPx) continue;
 
       setBlock(r, c, EMPTY);
-      const goldGain = Math.max(1, Math.round(1 * state.comboMultiplier));
+      const goldGain = applyWeekendGoldBonus(Math.max(1, Math.round(1 * state.comboMultiplier)));
       state.gold += goldGain;
       addOverdriveMeter(OVERDRIVE_GOLD_GAIN);
       spawnParticles(cellCenterX, cellCenterY, '#ffd700', 6);
       playSound('coin');
     }
   }
+}
+
+// Keeps drill.invulnTimer topped up for the buff's duration rather than
+// tracking a separate "is shielded" damage check — the Stone/Gas hit
+// handlers already gate all damage behind `drill.invulnTimer <= 0`, so this
+// reuses that exact path (and its existing white-flash visual) for free
+// instead of adding a second parallel invincibility system.
+function updateShield(dt) {
+  if (state.shieldTimer <= 0) return;
+  state.shieldTimer = Math.max(0, state.shieldTimer - dt);
+  drill.invulnTimer = Math.max(drill.invulnTimer, 0.1);
+}
+
+// No per-frame work needed beyond the countdown — currentScore() checks
+// this timer directly rather than this function pushing a value anywhere.
+function updateScoreBoost(dt) {
+  if (state.scoreBoostTimer <= 0) return;
+  state.scoreBoostTimer = Math.max(0, state.scoreBoostTimer - dt);
 }
 
 // Awards one not-yet-owned relic (spawn logic already stops once all 5 are
@@ -2999,6 +3260,9 @@ function update(dt) {
   if (!state.running) return; // a Chest hit inside updateCollisions pauses instantly
   updateNearMissCombo();
   updateMagnet(dt);
+  updateShield(dt);
+  updateScoreBoost(dt);
+  updateGoldRushShaftIndicator();
   updateOverdrive(dt);
   updateContractProgress();
   updateHealth(dt);
@@ -3018,6 +3282,8 @@ function updateContractProgress() {
     saveDailyContracts();
     state.pendingContractGold += goal.bonusGold;
     awardPassXp(PASS_XP_PER_CONTRACT);
+    state.contractsCompletedLifetime += 1;
+    storageSet('ec_contractsCompletedLifetime', String(state.contractsCompletedLifetime));
     queueToast('Contract Complete! ' + template.label(goal.target) + ' (+' + goal.bonusGold + ' Gold)');
   }
 }
@@ -3451,6 +3717,18 @@ function render() {
   } else {
     magnetDisplay.classList.add('hidden');
   }
+  if (state.shieldTimer > 0) {
+    shieldDisplay.classList.remove('hidden');
+    shieldDisplay.textContent = '🛡️ Shield: ' + state.shieldTimer.toFixed(1) + 's';
+  } else {
+    shieldDisplay.classList.add('hidden');
+  }
+  if (state.scoreBoostTimer > 0) {
+    scoreBoostDisplay.classList.remove('hidden');
+    scoreBoostDisplay.textContent = '⭐ 2x Score: ' + state.scoreBoostTimer.toFixed(1) + 's';
+  } else {
+    scoreBoostDisplay.classList.add('hidden');
+  }
   const healthPct = clamp(drill.health / drill.maxHealth, 0, 1) * 100;
   healthBarInner.style.width = healthPct + '%';
   if (healthPct > 50) {
@@ -3760,6 +4038,7 @@ render();
 checkOfflineEarnings();
 checkLoginStreak();
 updateStartScreenHud();
+applyAudioMutePreference(); // apply a persisted mute preference immediately, before the player ever opens Settings
 
 initPlayablesSDK();
 notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above
