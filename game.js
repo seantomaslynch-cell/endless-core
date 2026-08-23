@@ -1295,6 +1295,40 @@ function getAdMobPlugin() {
   return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AdMob) || null;
 }
 
+// Requests App Tracking Transparency permission (Apple requires this before
+// an app may use the IDFA for ads — App Review checks for it) and GDPR/UK
+// consent via Google's UMP flow (required for EEA/UK users). Both are
+// best-effort: declining either just means less personalized ads, never a
+// blocked game — matches this file's existing "SDK wiring must never break
+// the game" philosophy throughout.
+async function initAdMob() {
+  const admob = getAdMobPlugin();
+  if (!admob) return;
+  try {
+    await admob.initialize();
+
+    const [trackingInfo, consentInfo] = await Promise.all([
+      admob.trackingAuthorizationStatus(),
+      admob.requestConsentInfo(),
+    ]);
+
+    if (trackingInfo.status === 'notDetermined') {
+      await admob.requestTrackingAuthorization();
+    }
+
+    const authorizationStatus = await admob.trackingAuthorizationStatus();
+    if (
+      authorizationStatus.status === 'authorized' &&
+      consentInfo.isConsentFormAvailable &&
+      consentInfo.status === 'REQUIRED' // AdmobConsentStatus.REQUIRED — a plain string enum, safe to reference directly without importing it
+    ) {
+      await admob.showConsentForm();
+    }
+  } catch (e) {
+    // AdMob init/consent wiring must never block the game from running
+  }
+}
+
 // Named (not an anonymous click closure) so it's directly callable by a test
 // harness. Grants the revive ONLY when the ad resolves truthy.
 async function watchAdRevive() {
@@ -2487,12 +2521,7 @@ function initPlayablesSDK() {
     } catch (e) {
       // App plugin wiring must never block the game from running
     }
-    try {
-      const admob = getAdMobPlugin();
-      if (admob) admob.initialize().catch(() => {}); // failures here just mean later ad calls will also fail closed
-    } catch (e) {
-      // AdMob plugin wiring must never block the game from running
-    }
+    initAdMob(); // fire-and-forget — handles its own errors, never blocks the game from running
     return;
   }
 
