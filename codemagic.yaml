@@ -47,3 +47,49 @@ workflows:
             CODE_SIGNING_ALLOWED=NO
     artifacts:
       - /tmp/xcodebuild_logs/*.log
+
+  ios-release:
+    name: iOS App Store Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    # Manual trigger only (no `triggering:` block) — this produces a real
+    # signed build and submits it to TestFlight, so it should be a deliberate
+    # "Start new build" click in the Codemagic UI, not something that fires
+    # on every push to master.
+    integrations:
+      # Replace with the exact name you give the key when you connect it:
+      # Codemagic Team settings > Team integrations > Developer Portal >
+      # Manage keys > Add key. See setup steps below.
+      app_store_connect: CHANGE_ME_appstore_key_name
+    environment:
+      node: lts
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.zenzrack.endlesscore
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+      - name: Sync web assets into the iOS project
+        script: npm run sync:ios
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight automatically; leave submit_to_app_store
+        # unset (defaults to false) until you're actually ready to release —
+        # add `submit_to_app_store: true` here when that day comes.
+        submit_to_testflight: true
