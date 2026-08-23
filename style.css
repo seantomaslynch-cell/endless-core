@@ -267,18 +267,21 @@ body.paused #gameCanvas {
   color: #ffd700;
 }
 
-/* Small muted "kicker" line above the real title — carries the brand name
-   (Endless Core) without competing with MINING RUSH, which is the name
-   players actually recognize from the App Store listing
-   ("Endless Core: Mining Rush"). */
+/* "Kicker" line above the real title — carries the brand name (Endless
+   Core) without competing with MINING RUSH, which is the name players
+   actually recognize from the App Store listing ("Endless Core: Mining
+   Rush"). Warm pale-gold instead of dim white — same gold family as the
+   title below so it reads as related branding, not a stray gray label,
+   while staying clearly smaller/lighter than MINING RUSH's own gold-foil
+   fill so the hierarchy is still obvious. */
 .menu-title-eyebrow {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 7px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 6px;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-  margin-bottom: 2px;
+  color: #ffe9b3;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 14px rgba(255, 193, 7, 0.4);
+  margin-bottom: 4px;
 }
 
 /* Gold-foil engraved look (gradient text fill + glow) instead of a flat
