@@ -283,17 +283,21 @@ body.paused #gameCanvas {
   background: linear-gradient(90deg, #ff9800, #ffd700, #66bb6a, #29b6f6, #ec407a);
 }
 
-/* Start screen is the one place that gets a genuinely colorful backdrop
-   (rather than every overlay's flat dark fill) — the hero/title screen is
-   what most benefits from feeling vibrant, while functional menus
-   (Upgrades, Museum, etc.) stay lower-key and easy to read. Still dark
-   enough at the edges to keep white text readable throughout. */
+/* Start screen is the one place with a real illustrated backdrop (rather
+   than every overlay's flat dark fill) — a painted mine-cave scene matching
+   the app icon's exact identity (silver drill, amber glow, gold veins).
+   The scrim gradient is deliberately light near the top (let the art show)
+   and thickens toward the bottom where the button stack sits, blending
+   into the image's own naturally dark lower third. Functional menus
+   (Upgrades, Museum, etc.) stay on the plain flat fill — lower-key, easier
+   to read, not competing with this screen's hero treatment. */
 #start-screen {
-  background:
-    radial-gradient(circle at 50% 15%, rgba(255, 152, 0, 0.30), transparent 50%),
-    radial-gradient(circle at 15% 85%, rgba(41, 182, 246, 0.25), transparent 55%),
-    radial-gradient(circle at 85% 80%, rgba(236, 64, 122, 0.22), transparent 55%),
-    linear-gradient(180deg, #1a0a2e 0%, #14102b 45%, #0a0a12 100%);
+  background-image:
+    linear-gradient(180deg, rgba(8, 6, 16, 0.30) 0%, rgba(8, 6, 16, 0.55) 55%, rgba(5, 4, 10, 0.94) 100%),
+    url('menu-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .overlay p {
@@ -334,59 +338,83 @@ body.paused #gameCanvas {
 
 /* Start-screen hierarchy: one large primary Play action, five smaller
    secondary actions in a grid beneath it — replaces the old flat stack of
-   six identically-sized buttons. */
+   six identically-sized buttons. Every button here shares a "glossy" build:
+   a soft white highlight layered over the base color gradient (light
+   catching a curved glass/glossy surface), an inset top highlight + bottom
+   shadow for physical depth, and a real drop shadow lifting it off the
+   background — the standard premium-mobile-game button treatment, replacing
+   the earlier flat single-color fills. */
 .overlay .menu-primary-btn {
+  --btn-grad: linear-gradient(135deg, #7ed67f 0%, #43a047 55%, #2e7d32 100%);
   min-width: 260px;
-  padding: 18px 24px;
-  font-size: 18px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #66bb6a, #43a047);
-  box-shadow: 0 4px 16px rgba(67, 160, 71, 0.5);
+  padding: 20px 24px;
+  font-size: 19px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--btn-grad);
+  box-shadow:
+    0 8px 24px rgba(46, 125, 50, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   margin-top: 4px;
 }
 
 .menu-secondary-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   max-width: 280px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .overlay .menu-secondary-btn {
+  --btn-grad: linear-gradient(135deg, #888, #555);
   min-width: 0;
-  padding: 12px 10px;
+  padding: 13px 10px;
   font-size: 13px;
-  border-radius: 10px;
+  border-radius: 12px;
   margin-top: 0;
-  border-width: 2px;
+  border-width: 1px;
   border-style: solid;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.5);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0) 45%),
+    var(--btn-grad);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .overlay .menu-secondary-btn:active {
   transform: scale(0.95);
-  filter: brightness(0.9);
+  filter: brightness(0.92);
 }
 
 /* Each secondary action keeps the same color identity its full overlay/
    Close button already uses elsewhere in the app (blue Upgrades, purple
-   Museum, teal Loadout, green Contracts, pink Trails) — restored here with
-   a visible bright border on top, replacing the earlier uniform muted-gray
-   treatment that read as flat/bland on a real device. */
-#start-upgrades-btn { background: linear-gradient(135deg, #42a5f5, #1976d2); border-color: #90caf9; }
-#start-museum-btn { background: linear-gradient(135deg, #ab47bc, #6a1b9a); border-color: #ce93d8; }
-#start-loadout-btn { background: linear-gradient(135deg, #26c6da, #00838f); border-color: #80deea; }
-#start-contracts-btn { background: linear-gradient(135deg, #66bb6a, #2e7d32); border-color: #a5d6a7; }
-#start-trails-btn { background: linear-gradient(135deg, #ec407a, #ad1457); border-color: #f48fb1; }
+   Museum, teal Loadout, green Contracts, pink Trails) — now with the
+   shared glossy treatment above instead of a flat fill. */
+#start-upgrades-btn { --btn-grad: linear-gradient(135deg, #64b5f6, #1976d2 60%, #0d47a1); }
+#start-museum-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 60%, #4a148c); }
+#start-loadout-btn { --btn-grad: linear-gradient(135deg, #4dd0e1, #00838f 60%, #004d5c); }
+#start-contracts-btn { --btn-grad: linear-gradient(135deg, #81c784, #388e3c 60%, #1b5e20); }
+#start-trails-btn { --btn-grad: linear-gradient(135deg, #f48fb1, #c2185b 60%, #880e4f); }
 
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action
    type from the primary actions around them — leaving the run — so they
-   get a neutral outlined treatment instead of a bright fill color. */
+   get a neutral outlined glass treatment instead of a bright fill color. */
 .overlay .menu-nav-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 2px solid rgba(255, 255, 255, 0.35);
+  --btn-grad: rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--btn-grad);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   color: #fff;
 }
 

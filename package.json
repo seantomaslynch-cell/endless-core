@@ -5,7 +5,7 @@
   "main": "game.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "sync:www": "node -e \"require('fs').mkdirSync('www',{recursive:true});['index.html','style.css','game.js'].forEach(f=>require('fs').copyFileSync(f,'www/'+f))\"",
+    "sync:www": "node -e \"require('fs').mkdirSync('www',{recursive:true});['index.html','style.css','game.js','menu-bg.jpg'].forEach(f=>require('fs').copyFileSync(f,'www/'+f))\"",
     "sync:ios": "npm run sync:www && npx cap sync ios"
   },
   "repository": {
