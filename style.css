@@ -923,6 +923,20 @@ body.paused #gameCanvas {
   opacity: 0.7;
 }
 
+/* Unused until a tier actually has premiumReward content (see game.js) —
+   styled now so it doesn't need revisiting later. Indented + violet accent
+   visually nests it under its free-tier row and marks it as the "other
+   track" at a glance. */
+.pass-tier-row-premium {
+  margin-left: 16px;
+  border-left-color: #ab47bc;
+  background: linear-gradient(180deg, rgba(171, 71, 188, 0.12) 0%, rgba(171, 71, 188, 0.04) 100%);
+}
+
+.pass-tier-row-premium.claimed {
+  border-left-color: #4caf50;
+}
+
 .pass-tier-icon {
   width: 22px;
   height: 22px;

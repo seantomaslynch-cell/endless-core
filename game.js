@@ -730,6 +730,11 @@ const state = {
   passClaimedTiers: loadPassClaimedTiers(), // array of claimed Pass tier numbers, persisted
   passSeasonStart: loadOrInitPassSeasonStart(), // ms epoch, persisted
   passSeasonNumber: parseInt(storageGet('ec_passSeasonNumber') || '1', 10),
+  // Reserved for the future paid track — always false/empty until a real IAP
+  // purchase flow exists to set them (see unlockPassPremium()). Persisted
+  // now so the shape is already correct; nothing sets these yet.
+  passPremiumUnlocked: storageGet('ec_passPremiumUnlocked') === 'true',
+  passClaimedPremiumTiers: loadPassClaimedPremiumTiers(),
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -927,13 +932,24 @@ function selectOwnedTrail(id) {
 }
 
 // ---------- Season Pass ----------
-// Free-track-only battle pass: play the game, earn Pass XP, climb tiers,
-// claim Gold + exclusive Trails. No real money involved — a paid premium
-// track is a deliberately separate, later decision (it needs an actual
-// App Store Connect IAP product + StoreKit purchase flow, neither of which
-// exist in this project yet). Entirely client-side/localStorage, same as
-// every other persisted system here — there's no backend to run a real
-// server-authoritative season on.
+// Currently ships free-track only: play the game, earn Pass XP, climb tiers,
+// claim Gold + exclusive Trails. No real money involved yet — but the data
+// model, claim flow, and state below are already shaped for a second PAID
+// track to slot in later (once the app is actually published and a real
+// In-App Purchase product exists in App Store Connect), without reworking
+// the free track:
+//   - Every PASS_REWARDS entry carries a `premiumReward` field (null until
+//     premium content is designed — intentionally not invented speculatively
+//     here, see claimPassPremiumTier below).
+//   - state.passPremiumUnlocked / passClaimedPremiumTiers are ready and
+//     persisted, but nothing ever sets passPremiumUnlocked true yet — that's
+//     unlockPassPremium()'s job, meant to be called from a future StoreKit
+//     purchase-success handler, once one exists.
+//   - Like real battle passes (Fortnite, Brawl Stars), a premium unlock is
+//     scoped to ONE season, not permanent — checkPassSeasonExpiry() resets
+//     it on rollover same as XP/claims.
+// Entirely client-side/localStorage, same as every other persisted system
+// here — there's no backend to run a real server-authoritative season on.
 const PASS_TIER_COUNT = 25;
 const PASS_SEASON_DURATION_MS = 45 * 24 * 60 * 60 * 1000; // 45 days — long enough to not pressure casual play, short enough to keep urgency (industry-standard range for casual mobile passes)
 const PASS_XP_PER_METER_DEPTH = 0.1; // 1 XP per 10m reached, this run
@@ -957,16 +973,22 @@ const PASS_TIER_XP_REQUIRED = (() => {
 // that exact passTier — those grant the trail instead. Reading milestones
 // off TRAIL_DEFS (rather than a second hardcoded tier->reward map) keeps the
 // trail's unlock tier declared in exactly one place.
+// `premiumReward` (same shape as the free reward: {type, amount/trailId,
+// label}) is null on every tier for now — real premium content should be
+// designed once there's an actual price point and IAP product to attach it
+// to, not guessed at here. The field exists so claimPassPremiumTier() and
+// the render logic below have something concrete to check for, so wiring
+// real content later is a data change, not a logic change.
 const PASS_REWARDS = (() => {
   const trailByTier = {};
   TRAIL_DEFS.forEach((t) => { if (t.passTier !== undefined) trailByTier[t.passTier] = t; });
   const rewards = [];
   for (let tier = 1; tier <= PASS_TIER_COUNT; tier++) {
     if (trailByTier[tier]) {
-      rewards.push({ tier, type: 'trail', trailId: trailByTier[tier].id, label: trailByTier[tier].name });
+      rewards.push({ tier, type: 'trail', trailId: trailByTier[tier].id, label: trailByTier[tier].name, premiumReward: null });
     } else {
       const amount = 30 + tier * 8;
-      rewards.push({ tier, type: 'gold', amount, label: amount + ' Gold' });
+      rewards.push({ tier, type: 'gold', amount, label: amount + ' Gold', premiumReward: null });
     }
   }
   return rewards;
@@ -975,6 +997,15 @@ const PASS_REWARDS = (() => {
 function loadPassClaimedTiers() {
   try {
     const saved = JSON.parse(storageGet('ec_passClaimedTiers') || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadPassClaimedPremiumTiers() {
+  try {
+    const saved = JSON.parse(storageGet('ec_passClaimedPremiumTiers') || '[]');
     return Array.isArray(saved) ? saved : [];
   } catch {
     return [];
@@ -1001,10 +1032,17 @@ function checkPassSeasonExpiry() {
   state.passXp = 0;
   state.passClaimedTiers = [];
   state.passSeasonNumber += 1;
+  // A premium unlock (once purchasable) only ever covers the season it was
+  // bought in — same convention every real battle pass uses — so it resets
+  // here right alongside XP/claims, not separately.
+  state.passPremiumUnlocked = false;
+  state.passClaimedPremiumTiers = [];
   storageSet('ec_passSeasonStart', String(state.passSeasonStart));
   storageSet('ec_passXp', '0');
   storageSet('ec_passClaimedTiers', '[]');
   storageSet('ec_passSeasonNumber', String(state.passSeasonNumber));
+  storageSet('ec_passPremiumUnlocked', 'false');
+  storageSet('ec_passClaimedPremiumTiers', '[]');
 }
 
 // Highest tier fully funded by the given XP total (0 if not even tier 1 yet).
@@ -1053,6 +1091,38 @@ function claimPassTier(tier) {
   }
   state.passClaimedTiers.push(tier);
   storageSet('ec_passClaimedTiers', JSON.stringify(state.passClaimedTiers));
+}
+
+// Mirrors claimPassTier() for the premium track. Currently unreachable from
+// any UI (no button calls it, no reward.premiumReward is ever non-null) —
+// it exists so the claim FLOW is already correct and tested by the time
+// there's real premium content and a purchase to gate it behind.
+function claimPassPremiumTier(tier) {
+  if (!state.passPremiumUnlocked) return;
+  if (state.passClaimedPremiumTiers.includes(tier)) return;
+  if (getPassTierForXp(state.passXp) < tier) return;
+
+  const reward = PASS_REWARDS[tier - 1].premiumReward;
+  if (!reward) return;
+  if (reward.type === 'gold') {
+    state.bankedGold += reward.amount;
+    storageSet('ec_bankedGold', String(state.bankedGold));
+  } else if (reward.type === 'trail' && !state.unlockedTrails.includes(reward.trailId)) {
+    state.unlockedTrails.push(reward.trailId);
+    storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
+  }
+  state.passClaimedPremiumTiers.push(tier);
+  storageSet('ec_passClaimedPremiumTiers', JSON.stringify(state.passClaimedPremiumTiers));
+}
+
+// Intended call site: a future StoreKit purchase-success handler (Capacitor
+// IAP plugin's `purchase` resolving successfully for the Season Pass
+// product), once that product actually exists in App Store Connect. Not
+// called from anywhere yet — deliberately not wired to any button so
+// nothing purchasable is offered before there's a real payment behind it.
+function unlockPassPremium() {
+  state.passPremiumUnlocked = true;
+  storageSet('ec_passPremiumUnlocked', 'true');
 }
 
 // Runs once at script load, after the Pass constants above and the `state`
@@ -1967,18 +2037,52 @@ function renderPassScreen() {
       actionHtml = `<div class="pass-tier-locked">Tier ${reward.tier}</div>`;
     }
 
+    // Inert today (reward.premiumReward is null on every tier — see
+    // PASS_REWARDS) but the render logic is already correct for whenever a
+    // future premium track has real content: a second row appears
+    // automatically the moment a tier gets a non-null premiumReward, no
+    // changes needed here.
+    let premiumHtml = '';
+    if (reward.premiumReward) {
+      const premiumClaimed = state.passClaimedPremiumTiers.includes(reward.tier);
+      let premiumActionHtml;
+      if (!state.passPremiumUnlocked) {
+        premiumActionHtml = `<div class="pass-tier-locked">Premium</div>`;
+      } else if (premiumClaimed) {
+        premiumActionHtml = `<div class="pass-tier-claimed">✓ Claimed</div>`;
+      } else if (reached) {
+        premiumActionHtml = `<button class="pass-claim-btn pass-claim-btn-premium" data-premium-tier="${reward.tier}">Claim</button>`;
+      } else {
+        premiumActionHtml = `<div class="pass-tier-locked">Tier ${reward.tier}</div>`;
+      }
+      premiumHtml = `
+        <div class="pass-tier-row pass-tier-row-premium ${premiumClaimed ? 'claimed' : ''}">
+          <div class="pass-tier-icon" style="background:${reward.premiumReward.type === 'trail' ? (TRAIL_DEFS.find((t) => t.id === reward.premiumReward.trailId).color(BIOMES[0])) : '#ffd700'};"></div>
+          <div class="pass-tier-reward-label">${reward.premiumReward.label}</div>
+          ${premiumActionHtml}
+        </div>
+      `;
+    }
+
     return `
       <div class="pass-tier-row ${claimed ? 'claimed' : reached ? 'claimable' : 'locked'}">
         <div class="pass-tier-icon" style="background:${swatch};"></div>
         <div class="pass-tier-reward-label">${reward.label}</div>
         ${actionHtml}
       </div>
+      ${premiumHtml}
     `;
   }).join('');
 
   passTierListEl.querySelectorAll('.pass-claim-btn[data-tier]').forEach((btn) => {
     btn.addEventListener('click', () => {
       claimPassTier(parseInt(btn.dataset.tier, 10));
+      renderPassScreen();
+    });
+  });
+  passTierListEl.querySelectorAll('.pass-claim-btn-premium[data-premium-tier]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      claimPassPremiumTier(parseInt(btn.dataset.premiumTier, 10));
       renderPassScreen();
     });
   });
