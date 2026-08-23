@@ -267,20 +267,43 @@ body.paused #gameCanvas {
   color: #ffd700;
 }
 
-.menu-title h1 {
-  font-size: 42px;
-  letter-spacing: 4px;
+/* Small muted "kicker" line above the real title — carries the brand name
+   (Endless Core) without competing with MINING RUSH, which is the name
+   players actually recognize from the App Store listing
+   ("Endless Core: Mining Rush"). */
+.menu-title-eyebrow {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 7px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
   margin-bottom: 2px;
-  color: #ffd700;
-  text-shadow: 0 0 20px rgba(255, 215, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+/* Gold-foil engraved look (gradient text fill + glow) instead of a flat
+   color — reads as a rich metal plaque rather than plain UI text. Needs
+   the -webkit- prefix for iOS WKWebView (the native app's actual engine). */
+.menu-title h1 {
+  font-size: 46px;
+  letter-spacing: 3px;
+  margin-bottom: 4px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff6d8 0%, #ffd700 45%, #c9910b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 26px rgba(255, 193, 7, 0.4);
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.6));
 }
 
 .menu-title-underline {
-  width: 160px;
-  height: 4px;
-  margin: 0 auto 6px;
+  width: 90px;
+  height: 3px;
+  margin: 2px auto 8px;
   border-radius: 2px;
-  background: linear-gradient(90deg, #ff9800, #ffd700, #66bb6a, #29b6f6, #ec407a);
+  background: linear-gradient(90deg, transparent, #ffd700 25%, #ffe9a8 50%, #ffd700 75%, transparent);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.55);
 }
 
 /* Start screen is the one place with a real illustrated backdrop (rather
@@ -395,15 +418,18 @@ body.paused #gameCanvas {
   margin-top: 0;
   border-width: 1px;
   border-style: solid;
-  border-color: rgba(255, 255, 255, 0.5);
+  /* Warm gold rim (not plain white) ties all five colors into one
+     "jeweled dashboard tile" family instead of reading as five unrelated
+     crayon-box hues. */
+  border-color: rgba(255, 213, 130, 0.45);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0) 45%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 45%),
     var(--btn-grad);
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.2);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 .overlay .menu-secondary-btn:active {
@@ -411,15 +437,17 @@ body.paused #gameCanvas {
   filter: brightness(0.92);
 }
 
-/* Each secondary action keeps the same color identity its full overlay/
-   Close button already uses elsewhere in the app (blue Upgrades, purple
-   Museum, teal Loadout, green Contracts, pink Trails) — now with the
-   shared glossy treatment above instead of a flat fill. */
-#start-upgrades-btn { --btn-grad: linear-gradient(135deg, #64b5f6, #1976d2 60%, #0d47a1); }
-#start-museum-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 60%, #4a148c); }
-#start-loadout-btn { --btn-grad: linear-gradient(135deg, #4dd0e1, #00838f 60%, #004d5c); }
-#start-contracts-btn { --btn-grad: linear-gradient(135deg, #81c784, #388e3c 60%, #1b5e20); }
-#start-trails-btn { --btn-grad: linear-gradient(135deg, #f48fb1, #c2185b 60%, #880e4f); }
+/* Each secondary action keeps its own color identity (still matches the
+   full overlay/Close button of that screen elsewhere in the app) so the
+   color-coding stays useful as a memory aid — but deepened into richer
+   jewel tones (sapphire / amethyst / emerald teal / emerald / ruby)
+   instead of bright Material-style primaries, so the set reads as
+   "expensive gemstones" rather than "candy." */
+#start-upgrades-btn { --btn-grad: linear-gradient(135deg, #5b9bd9, #1a56a3 55%, #0a2f5c); }
+#start-museum-btn { --btn-grad: linear-gradient(135deg, #b47cc7, #6a1b8f 55%, #37134a); }
+#start-loadout-btn { --btn-grad: linear-gradient(135deg, #3fc1c9, #0f6e75 55%, #073c40); }
+#start-contracts-btn { --btn-grad: linear-gradient(135deg, #6fbf73, #256029 55%, #123815); }
+#start-trails-btn { --btn-grad: linear-gradient(135deg, #e2779a, #a01248 55%, #5c0a29); }
 
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action
    type from the primary actions around them — leaving the run — so they
