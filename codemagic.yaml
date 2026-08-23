@@ -57,10 +57,7 @@ workflows:
     # "Start new build" click in the Codemagic UI, not something that fires
     # on every push to master.
     integrations:
-      # Replace with the exact name you give the key when you connect it:
-      # Codemagic Team settings > Team integrations > Developer Portal >
-      # Manage keys > Add key. See setup steps below.
-      app_store_connect: CHANGE_ME_appstore_key_name
+      app_store_connect: apple_api_key
     environment:
       node: lts
       xcode: latest
