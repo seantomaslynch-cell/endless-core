@@ -2213,14 +2213,22 @@ function shadeColor(hex, amount) {
 // variants per combination, picked per-cell by a cheap deterministic hash
 // of its row/col, break up what would otherwise be an obviously-repeating
 // tile pattern without any extra runtime cost.
-const TILE_VARIANTS_PER_TYPE = 2;
+const TILE_VARIANTS_PER_TYPE = 3;
 const tileTextureCache = {};
 
-function createTileTexture(baseColorHex, seed) {
+function createTileTexture(baseColorHex, seed, isStone) {
+  // Generated at DPR resolution, not a flat BLOCKxBLOCK — the main canvas
+  // now renders at devicePixelRatio (see the HD rendering fix), so a
+  // texture baked at a fixed 40x40 would itself get upscaled and look
+  // blurry when drawn into that higher-res canvas, undermining the exact
+  // sharpness the DPR fix was for. All the drawing code below still just
+  // uses BLOCK-sized logical coordinates — tctx.scale(DPR, DPR) handles the
+  // upscaling the same way the main canvas's own scale() does.
   const tex = document.createElement('canvas');
-  tex.width = BLOCK;
-  tex.height = BLOCK;
+  tex.width = BLOCK * DPR;
+  tex.height = BLOCK * DPR;
   const tctx = tex.getContext('2d');
+  tctx.scale(DPR, DPR);
 
   tctx.fillStyle = baseColorHex;
   tctx.fillRect(0, 0, BLOCK, BLOCK);
@@ -2236,19 +2244,40 @@ function createTileTexture(baseColorHex, seed) {
   // same seed always draws the same texture, so it's safe to cache).
   let s = seed;
   const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  const speckleCount = 5 + Math.floor(rand() * 4);
+  const speckleCount = 6 + Math.floor(rand() * 5);
   for (let i = 0; i < speckleCount; i++) {
     const x = rand() * BLOCK;
     const y = rand() * BLOCK;
-    const rad = 1 + rand() * 1.5;
-    tctx.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.12)';
+    const rad = 1 + rand() * 1.8;
+    tctx.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.14)';
     tctx.beginPath();
     tctx.arc(x, y, rad, 0, Math.PI * 2);
     tctx.fill();
   }
 
-  // chunky bevel — light top/left edge, dark bottom/right edge
-  tctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  // Stone gets a jagged crack line for a genuine rock feel — dirt doesn't
+  // (a straight crack reads as rock, not soil). Same cached-once cost as
+  // everything else here.
+  if (isStone) {
+    tctx.strokeStyle = 'rgba(0,0,0,0.30)';
+    tctx.lineWidth = 1;
+    tctx.beginPath();
+    let cx = 6 + rand() * (BLOCK - 12);
+    let cy = 4 + rand() * 8;
+    tctx.moveTo(cx, cy);
+    const segments = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < segments; i++) {
+      cx += (rand() - 0.3) * 10;
+      cy += BLOCK / (segments + 1);
+      tctx.lineTo(cx, cy);
+    }
+    tctx.stroke();
+  }
+
+  // chunky bevel — light top/left edge, dark bottom/right edge. Slightly
+  // stronger contrast than the first pass for a more visibly "chunky 3D
+  // block" read rather than a subtle hint of one.
+  tctx.strokeStyle = 'rgba(255,255,255,0.26)';
   tctx.lineWidth = 2;
   tctx.beginPath();
   tctx.moveTo(1, BLOCK - 1);
@@ -2256,14 +2285,14 @@ function createTileTexture(baseColorHex, seed) {
   tctx.lineTo(BLOCK - 1, 1);
   tctx.stroke();
 
-  tctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  tctx.strokeStyle = 'rgba(0,0,0,0.32)';
   tctx.beginPath();
   tctx.moveTo(BLOCK - 1, 1);
   tctx.lineTo(BLOCK - 1, BLOCK - 1);
   tctx.lineTo(1, BLOCK - 1);
   tctx.stroke();
 
-  tctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  tctx.strokeStyle = 'rgba(0,0,0,0.3)';
   tctx.lineWidth = 1;
   tctx.strokeRect(0.5, 0.5, BLOCK - 1, BLOCK - 1);
 
@@ -2275,7 +2304,7 @@ function getTileTexture(type, biome, variantIndex) {
   const key = type + '_' + biome.name + '_' + variantIndex;
   if (!tileTextureCache[key]) {
     const seed = (type === DIRT ? 1000 : 2000) + biome.name.length * 97 + variantIndex * 613;
-    tileTextureCache[key] = createTileTexture(baseColor, seed);
+    tileTextureCache[key] = createTileTexture(baseColor, seed, type === STONE);
   }
   return tileTextureCache[key];
 }
@@ -2299,9 +2328,17 @@ function drawGoldBlock(screenX, screenY, nowMs) {
   ctx.lineWidth = 1;
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
 
+  // Primary shine (pulses) plus a small fixed secondary glint — one moving
+  // highlight alone reads as flat plastic; two fixed points of light (one
+  // animated, one static) is what actually sells "polished metal."
   ctx.fillStyle = `rgba(255,255,255,${0.5 + pulse * 0.3})`;
   ctx.beginPath();
   ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath();
+  ctx.arc(cx + 7, cy + 6, 1.8, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -2431,7 +2468,11 @@ function render() {
       }
       if (type === DIRT || type === STONE) {
         const variantIndex = (r * 31 + c * 17) % TILE_VARIANTS_PER_TYPE;
-        ctx.drawImage(getTileTexture(type, rowBiome, variantIndex), screenX, screenY);
+        // Explicit destination size (not the 2-arg natural-size form) is
+        // required now that the source texture is baked at DPR resolution
+        // but needs to occupy exactly one BLOCK-sized logical cell here —
+        // otherwise it would draw DPR times too large.
+        ctx.drawImage(getTileTexture(type, rowBiome, variantIndex), screenX, screenY, BLOCK, BLOCK);
       }
     }
   }
@@ -2474,8 +2515,36 @@ function render() {
     ctx.fillStyle = bodyGrad;
   }
   ctx.fillRect(drillScreenX, drillScreenY, drill.width, drill.height);
-  // drill nose (triangle pointing down)
-  ctx.fillStyle = flashing ? '#ff8a80' : appearance.nose;
+
+  // Mechanical segment rings — matches the app icon's own ringed-drill-body
+  // design. Purely cosmetic detail; only one drill exists at a time, so
+  // there's no per-block-style performance concern about adding it.
+  if (!flashing) {
+    const ringCount = 3;
+    ctx.strokeStyle = shadeColor(appearance.body, -0.45);
+    ctx.lineWidth = 1.5;
+    for (let i = 1; i < ringCount; i++) {
+      const ringY = drillScreenY + (drill.height / ringCount) * i;
+      ctx.beginPath();
+      ctx.moveTo(drillScreenX + 2, ringY);
+      ctx.lineTo(drillScreenX + drill.width - 2, ringY);
+      ctx.stroke();
+    }
+  }
+
+  // drill nose (triangle pointing down) — gradient instead of flat, echoing
+  // the body's lit-from-one-side treatment
+  if (flashing) {
+    ctx.fillStyle = '#ff8a80';
+  } else {
+    const noseGrad = ctx.createLinearGradient(
+      drillScreenX, drillScreenY + drill.height,
+      drillScreenX + drill.width, drillScreenY + drill.height + 14
+    );
+    noseGrad.addColorStop(0, shadeColor(appearance.nose, 0.4));
+    noseGrad.addColorStop(1, shadeColor(appearance.nose, -0.2));
+    ctx.fillStyle = noseGrad;
+  }
   ctx.beginPath();
   ctx.moveTo(drillScreenX, drillScreenY + drill.height);
   ctx.lineTo(drillScreenX + drill.width, drillScreenY + drill.height);
