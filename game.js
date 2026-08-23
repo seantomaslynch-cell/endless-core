@@ -49,20 +49,36 @@ function storageSet(key, value) {
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-const COLS = 9;
 const BLOCK = 40; // logical pixels per block (1 block = 1 "meter")
-const LOGICAL_W = COLS * BLOCK; // 360
 const LOGICAL_H = 640;
+
+// COLS is derived from the device's actual viewport aspect at load time,
+// not hardcoded — a fixed 9-column (9:16 portrait) canvas produced heavy
+// black-bar letterboxing on anything wider (PC, landscape, a YouTube
+// Playables frame is often wide). Solving COLS so LOGICAL_W/LOGICAL_H
+// matches the real viewport aspect makes resizeCanvas()'s existing
+// letterbox-fit below land on a near-exact match — filling the screen
+// with zero (or negligible) bars on any device, portrait or landscape —
+// without changing per-block gameplay balance (stone/gold density, near-miss
+// margins, drill hitboxes, etc. are all defined relative to BLOCK, not COLS).
+// Clamped to [9, 26] so extreme aspect ratios still play sensibly.
+const MIN_COLS = 9;
+const MAX_COLS = 26;
+const initialAspect = window.innerWidth / window.innerHeight;
+const COLS = clamp(Math.round((initialAspect * LOGICAL_H) / BLOCK), MIN_COLS, MAX_COLS);
+const LOGICAL_W = COLS * BLOCK;
 
 canvas.width = LOGICAL_W;
 canvas.height = LOGICAL_H;
 
-// The internal logical resolution (LOGICAL_W/H) never changes — only the
-// CSS display size is rescaled to fit, letterboxed to preserve aspect ratio.
-// Entity positions live entirely in that fixed logical space, so they can
-// never end up off-screen on rotation/resize; there's no per-entity rescale
-// or clamp step to do. Wrapped in try/catch regardless (belt-and-suspenders
-// safety for a handler that can fire before other module state settles).
+// The internal logical resolution (LOGICAL_W/H) is fixed once COLS is chosen
+// above — only the CSS display size is rescaled to fit, letterboxed to
+// preserve that aspect ratio (which now already matches the device closely,
+// so visible bars are minimal-to-none in practice). Entity positions live
+// entirely in that fixed logical space, so they can never end up off-screen
+// on rotation/resize; there's no per-entity rescale or clamp step to do.
+// Wrapped in try/catch regardless (belt-and-suspenders safety for a handler
+// that can fire before other module state settles).
 function resizeCanvas() {
   try {
     const aspect = LOGICAL_W / LOGICAL_H;
