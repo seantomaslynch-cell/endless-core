@@ -30,6 +30,14 @@
   <!-- Core Overdrive screen-border flash (invincibility signal) -->
   <div id="overdrive-flash"></div>
 
+  <!-- Player-initiated pause (distinct from the SDK-driven platform pause
+       below). Only visible during an active run. -->
+  <button id="pause-btn" class="hidden" aria-label="Pause">❚❚</button>
+  <div id="manual-pause-screen" class="overlay hidden">
+    <h1>Paused</h1>
+    <button id="manual-pause-resume-btn">Resume</button>
+  </div>
+
   <!-- Contract-complete / Fallen Miners toast -->
   <div id="toast" class="hidden"></div>
 

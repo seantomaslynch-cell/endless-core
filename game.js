@@ -86,28 +86,33 @@ const LOGICAL_W = COLS * BLOCK;
 canvas.width = LOGICAL_W;
 canvas.height = LOGICAL_H;
 
-// The internal logical resolution (LOGICAL_W/H) is fixed once COLS is chosen
-// above — only the CSS display size is rescaled to fit, letterboxed to
-// preserve that aspect ratio (which now already matches the device closely,
-// so visible bars are minimal-to-none in practice). Entity positions live
-// entirely in that fixed logical space, so they can never end up off-screen
-// on rotation/resize; there's no per-entity rescale or clamp step to do.
-// Wrapped in try/catch regardless (belt-and-suspenders safety for a handler
-// that can fire before other module state settles).
+// The internal logical resolution (LOGICAL_W/H) is fixed once COLS is
+// chosen above — the CSS display size always stretches to exactly fill the
+// viewport, full-bleed, on every device. COLS quantizes to whole columns at
+// a fixed 40px BLOCK, so LOGICAL_W/H can never match an arbitrary device's
+// aspect ratio pixel-for-pixel; preserving that aspect ratio (the previous
+// approach) meant a residual letterbox gap was mathematically unavoidable —
+// small, but real, and visible on-device. Stretching instead guarantees
+// zero black bars on any screen, at the cost of blocks rendering as very
+// slightly non-square rectangles on devices whose aspect doesn't land
+// exactly on a whole COLS value. Entity positions live entirely in the
+// fixed logical space regardless, so nothing needs to be rescaled/clamped
+// per-entity here. Wrapped in try/catch regardless (belt-and-suspenders
+// safety for a handler that can fire before other module state settles).
 function resizeCanvas() {
   try {
-    const aspect = LOGICAL_W / LOGICAL_H;
-    let w = window.innerWidth;
-    let h = window.innerHeight;
-    if (w / h > aspect) {
-      h = h;
-      w = h * aspect;
-    } else {
-      w = w;
-      h = w / aspect;
+    // A freshly-loaded page can momentarily report 0x0 before its first
+    // layout pass (the same race that made COLS need a NaN guard above) —
+    // skip committing a broken size rather than leaving the canvas stuck
+    // permanently invisible, since unlike COLS this isn't a one-time value:
+    // there's no later 'resize' event to self-correct a viewport that never
+    // actually changes size again after this bad initial read.
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (w > 0 && h > 0) {
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
     }
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
   } catch (e) {
     // never let a resize/orientation event throw and break the page
   }
@@ -115,6 +120,7 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', resizeCanvas);
 resizeCanvas();
+requestAnimationFrame(resizeCanvas); // catches a viewport that wasn't laid out yet on the synchronous call above
 
 // ---------- Audio: procedural sound effects (Web Audio API, no files) ----------
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -1201,6 +1207,8 @@ const trailsScreen = document.getElementById('trails-screen');
 const welcomeBackScreen = document.getElementById('welcome-back-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
+const pauseBtn = document.getElementById('pause-btn');
+const manualPauseScreen = document.getElementById('manual-pause-screen');
 
 const finalDepthEl = document.getElementById('final-depth');
 const finalGoldEl = document.getElementById('final-gold');
@@ -1286,6 +1294,7 @@ async function watchAdRevive() {
     state.running = true;
     drill.invulnTimer = 1.5;
     gameoverScreen.classList.add('hidden');
+    pauseBtn.classList.remove('hidden');
     reviveBtn.textContent = REVIVE_BTN_DEFAULT_TEXT;
     reviveBtn.disabled = false;
     lastFrameTime = performance.now();
@@ -1482,6 +1491,32 @@ chestAdBtn.addEventListener('click', watchAdMagnet);
 chestSkipBtn.addEventListener('click', () => {
   if (chestSkipBtn.disabled) return;
   resumeAfterChest();
+});
+
+// ---------- Manual pause (player-initiated) ----------
+// Distinct from handleSdkPause()/#pause-overlay (platform-driven, no button
+// of its own — see the SDK bootstrap section). This one has a Resume button,
+// so it deliberately does NOT use body.paused (that CSS rule disables every
+// button while set, which is exactly right for a platform pause locking out
+// the whole page, but would also disable this overlay's own Resume button).
+// pauseGameLoop()/state.running are shared with the Chest overlay's pause,
+// which already proved this exact "manual pause the loop, resume with a
+// button" pattern works safely alongside a real SDK pause: if one fires
+// while manually paused, wasRunningBeforePause correctly reads false (the
+// loop was already stopped), so SDK resume clears its own lockout without
+// incorrectly restarting gameplay out from under the still-open Resume
+// button.
+pauseBtn.addEventListener('click', () => {
+  if (!state.running) return;
+  pauseGameLoop();
+  manualPauseScreen.classList.remove('hidden');
+});
+
+document.getElementById('manual-pause-resume-btn').addEventListener('click', () => {
+  manualPauseScreen.classList.add('hidden');
+  state.running = true;
+  lastFrameTime = performance.now();
+  rafId = requestAnimationFrame(loop);
 });
 
 // ---------- The Artifact Museum overlay ----------
@@ -1768,7 +1803,9 @@ function startGame() {
   contractsScreen.classList.add('hidden');
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
+  manualPauseScreen.classList.add('hidden');
   newHighscoreBadge.classList.add('hidden');
+  pauseBtn.classList.remove('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 
   if (!firstInterstitialShown) {
@@ -1783,6 +1820,8 @@ function startGame() {
 function endGame(causeOfDeath) {
   pauseGameLoop();
   state.gameOver = true;
+  pauseBtn.classList.add('hidden');
+  manualPauseScreen.classList.add('hidden');
 
   syncBankedGold(state.gold);
   if (state.pendingContractGold > 0) {
