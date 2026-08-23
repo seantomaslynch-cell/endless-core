@@ -1251,12 +1251,12 @@ function showRewardedVideo(rewardId) {
   muteAudio(); // duck game audio for the duration of the ad
 
   if (isNativeMobile) {
-    // No ad network wired up on iOS yet — always "succeeds" as a placeholder
-    // until the Capacitor AdMob plugin is integrated. Every caller already
-    // treats this as best-effort (grants the reward only on a truthy
-    // resolve), so this is safe to ship ahead of the real integration.
-    unmuteAudio();
-    return Promise.resolve(true);
+    const admob = getAdMobPlugin();
+    if (!admob) { unmuteAudio(); return Promise.resolve(false); } // plugin not registered — fail closed, never throw
+    return admob.prepareRewardVideoAd({ adId: ADMOB_REWARDED_AD_UNIT_ID })
+      .then(() => admob.showRewardVideoAd())
+      .then((rewardItem) => { unmuteAudio(); return !!rewardItem; }) // truthy reward item = actually watched through
+      .catch(() => { unmuteAudio(); return false; }); // load/show failure or dismissed early = no reward, not a crash
   }
 
   if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestRewardedAd) {
@@ -1278,6 +1278,18 @@ function showRewardedVideo(rewardId) {
 const REWARD_ID_REVIVE = 'endlesscore-revive';
 const REWARD_ID_DOUBLE_GOLD = 'endlesscore-2xgold';
 const REWARD_ID_MAGNET = 'endlesscore-magnet';
+
+// AdMob (native ads on iOS, via @capacitor-community/admob). These are
+// Google's public demo/test ad unit IDs — safe for development (they always
+// serve real-looking test creatives, never real ads), but MUST be replaced
+// with the real IDs from your AdMob account before a build should show
+// actual revenue-generating ads. See also Info.plist's GADApplicationIdentifier.
+const ADMOB_INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-3940256099942544/4411468910';
+const ADMOB_REWARDED_AD_UNIT_ID = 'ca-app-pub-3940256099942544/1712485313';
+
+function getAdMobPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AdMob) || null;
+}
 
 // Named (not an anonymous click closure) so it's directly callable by a test
 // harness. Grants the revive ONLY when the ad resolves truthy.
@@ -1738,7 +1750,15 @@ async function showInterstitialAd() {
   lastInterstitialTime = Date.now();
   interstitialArmed = false;
   if (isNativeMobile) {
-    return; // no ad network wired up on iOS yet — placeholder no-op until AdMob integration
+    const admob = getAdMobPlugin();
+    if (!admob) return; // plugin not registered — never fatal, gameplay continues regardless
+    try {
+      await admob.prepareInterstitial({ adId: ADMOB_INTERSTITIAL_AD_UNIT_ID });
+      await admob.showInterstitial();
+    } catch (e) {
+      // interstitial failures are never fatal — gameplay continues regardless
+    }
+    return;
   }
   if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestInterstitialAd)) {
     return; // no SDK present (local/dev testing) — nothing to show
@@ -2462,6 +2482,12 @@ function initPlayablesSDK() {
       }
     } catch (e) {
       // App plugin wiring must never block the game from running
+    }
+    try {
+      const admob = getAdMobPlugin();
+      if (admob) admob.initialize().catch(() => {}); // failures here just mean later ad calls will also fail closed
+    } catch (e) {
+      // AdMob plugin wiring must never block the game from running
     }
     return;
   }
