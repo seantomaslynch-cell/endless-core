@@ -24,15 +24,11 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<!-- AdMob (@capacitor-community/admob). GADApplicationIdentifier below is
-	     Google's public sample/demo App ID — safe for development, but MUST
-	     be replaced with the real App ID from your AdMob account before this
-	     build should show real (revenue-generating) ads. Same for the ad
-	     unit IDs used in game.js. -->
+	<!-- AdMob (@capacitor-community/admob). Real App ID from the account. -->
 	<key>GADIsAdManagerApp</key>
 	<true/>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-5040304268747359~2450096568</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

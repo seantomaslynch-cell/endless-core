@@ -1279,13 +1279,17 @@ const REWARD_ID_REVIVE = 'endlesscore-revive';
 const REWARD_ID_DOUBLE_GOLD = 'endlesscore-2xgold';
 const REWARD_ID_MAGNET = 'endlesscore-magnet';
 
-// AdMob (native ads on iOS, via @capacitor-community/admob). These are
-// Google's public demo/test ad unit IDs — safe for development (they always
-// serve real-looking test creatives, never real ads), but MUST be replaced
-// with the real IDs from your AdMob account before a build should show
-// actual revenue-generating ads. See also Info.plist's GADApplicationIdentifier.
-const ADMOB_INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-3940256099942544/4411468910';
-const ADMOB_REWARDED_AD_UNIT_ID = 'ca-app-pub-3940256099942544/1712485313';
+// AdMob (native ads on iOS, via @capacitor-community/admob). Real ad unit
+// IDs from the account — these serve real ads and count toward real
+// revenue/impressions, unlike Google's public demo IDs used during initial
+// integration. See also Info.plist's GADApplicationIdentifier.
+const ADMOB_INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-5040304268747359/3571606543';
+const ADMOB_REWARDED_AD_UNIT_ID = 'ca-app-pub-5040304268747359/8664151129';
+// Rewarded Interstitial ad unit exists in the AdMob account
+// (ca-app-pub-5040304268747359/7351069456) but isn't wired up — nothing in
+// the game currently uses that ad format (it auto-shows at a break without
+// the player opting in first, unlike the plain Rewarded flow the "Watch Ad
+// to ..." buttons use). Left here as a note in case that changes later.
 
 function getAdMobPlugin() {
   return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.AdMob) || null;
