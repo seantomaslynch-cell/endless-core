@@ -57,7 +57,7 @@ workflows:
     # "Start new build" click in the Codemagic UI, not something that fires
     # on every push to master.
     integrations:
-      app_store_connect: apple_api_key
+      app_store_connect: "Endless Core: Mining Rush"
     environment:
       node: lts
       xcode: latest
