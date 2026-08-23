@@ -726,6 +726,10 @@ const state = {
   selectedClass: loadSelectedClass(), // 'ROOKIE' | 'JACKHAMMER' | 'PLASMA', persisted
   unlockedTrails: loadUnlockedTrails(), // array of owned TRAIL_DEFS ids, persisted
   selectedTrail: loadSelectedTrail(), // TRAIL_DEFS id, persisted
+  passXp: parseInt(storageGet('ec_passXp') || '0', 10), // Season Pass XP earned this season, persisted
+  passClaimedTiers: loadPassClaimedTiers(), // array of claimed Pass tier numbers, persisted
+  passSeasonStart: loadOrInitPassSeasonStart(), // ms epoch, persisted
+  passSeasonNumber: parseInt(storageGet('ec_passSeasonNumber') || '1', 10),
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -858,6 +862,14 @@ const TRAIL_DEFS = [
   { id: 'standard', name: 'Standard Dust', cost: 0, color: (biome) => biome.dirtColor },
   { id: 'neon', name: 'Neon Spark', cost: 150, color: () => '#ff2ee6' },
   { id: 'magma_ash', name: 'Magma Ash', cost: 300, color: () => '#ff6f30' },
+  // Season Pass exclusives — unlocked by reaching a Pass tier, never
+  // gold-purchasable (no `cost` field; buyOrSelectTrail()/renderTrailsScreen()
+  // branch on `passTier` instead). The animated hue-cycle ones read as
+  // visibly fancier than any flat-color trail, which is the point of an
+  // "exclusive" reward — matches the ANIMATED, not just recolored.
+  { id: 'pass_prismatic', name: 'Prismatic Shimmer', passTier: 5, color: () => `hsl(${Math.floor(performance.now() / 8) % 360}, 90%, 60%)` },
+  { id: 'pass_golden', name: 'Golden Rush', passTier: 15, color: () => '#ffd700' },
+  { id: 'pass_molten', name: 'Molten Core', passTier: 25, color: () => `hsl(${Math.floor(performance.now() / 15) % 45}, 100%, 55%)` },
 ];
 
 function loadUnlockedTrails() {
@@ -886,9 +898,11 @@ function getTrailColor(biome) {
 
 // Unlocks-then-selects in one action if not yet owned; just selects if
 // already owned. No-ops silently if unaffordable (button is disabled anyway).
+// Season Pass trails (passTier set, no cost) are never gold-purchasable here
+// — they only ever become owned via claimPassTier().
 function buyOrSelectTrail(id) {
   const trail = TRAIL_DEFS.find((t) => t.id === id);
-  if (!trail) return;
+  if (!trail || trail.passTier !== undefined) return;
 
   if (isTrailUnlocked(id)) {
     state.selectedTrail = id;
@@ -902,6 +916,151 @@ function buyOrSelectTrail(id) {
     storageSet('ec_selectedTrail', id);
   }
 }
+
+// Selecting an already-owned Season Pass trail (claimed via the Pass screen)
+// uses this instead — buyOrSelectTrail() deliberately refuses passTier trails
+// so gold can never touch them.
+function selectOwnedTrail(id) {
+  if (!isTrailUnlocked(id)) return;
+  state.selectedTrail = id;
+  storageSet('ec_selectedTrail', id);
+}
+
+// ---------- Season Pass ----------
+// Free-track-only battle pass: play the game, earn Pass XP, climb tiers,
+// claim Gold + exclusive Trails. No real money involved — a paid premium
+// track is a deliberately separate, later decision (it needs an actual
+// App Store Connect IAP product + StoreKit purchase flow, neither of which
+// exist in this project yet). Entirely client-side/localStorage, same as
+// every other persisted system here — there's no backend to run a real
+// server-authoritative season on.
+const PASS_TIER_COUNT = 25;
+const PASS_SEASON_DURATION_MS = 45 * 24 * 60 * 60 * 1000; // 45 days — long enough to not pressure casual play, short enough to keep urgency (industry-standard range for casual mobile passes)
+const PASS_XP_PER_METER_DEPTH = 0.1; // 1 XP per 10m reached, this run
+const PASS_XP_PER_GOLD = 1;          // 1 XP per Gold collected, this run
+const PASS_XP_PER_CONTRACT = 25;     // flat bonus per Daily Contract completed — ties the Pass to the existing daily-return loop
+
+// Tier N costs more XP than tier N-1 (linear ramp: 150, 170, 190, ...) —
+// mirrors the same generateUpgradeCosts-style ramp used by the Tech Tree,
+// just inlined since this one isn't gold-cost-shaped.
+const PASS_TIER_XP_REQUIRED = (() => {
+  const costs = [];
+  let cost = 150;
+  for (let i = 0; i < PASS_TIER_COUNT; i++) {
+    costs.push(Math.round(cost));
+    cost += 20;
+  }
+  return costs;
+})();
+
+// Every tier grants Gold except the tiers where a TRAIL_DEFS entry declares
+// that exact passTier — those grant the trail instead. Reading milestones
+// off TRAIL_DEFS (rather than a second hardcoded tier->reward map) keeps the
+// trail's unlock tier declared in exactly one place.
+const PASS_REWARDS = (() => {
+  const trailByTier = {};
+  TRAIL_DEFS.forEach((t) => { if (t.passTier !== undefined) trailByTier[t.passTier] = t; });
+  const rewards = [];
+  for (let tier = 1; tier <= PASS_TIER_COUNT; tier++) {
+    if (trailByTier[tier]) {
+      rewards.push({ tier, type: 'trail', trailId: trailByTier[tier].id, label: trailByTier[tier].name });
+    } else {
+      const amount = 30 + tier * 8;
+      rewards.push({ tier, type: 'gold', amount, label: amount + ' Gold' });
+    }
+  }
+  return rewards;
+})();
+
+function loadPassClaimedTiers() {
+  try {
+    const saved = JSON.parse(storageGet('ec_passClaimedTiers') || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+// First-ever load starts the season clock now; every load after that just
+// reads it back — until it's more than PASS_SEASON_DURATION_MS old, at which
+// point progress resets for a new season (claimed cosmetic rewards are kept
+// forever, same as every other unlock in the game; only XP/tier/claims are
+// season-scoped).
+function loadOrInitPassSeasonStart() {
+  let start = parseInt(storageGet('ec_passSeasonStart') || '0', 10);
+  if (!start) {
+    start = Date.now();
+    storageSet('ec_passSeasonStart', String(start));
+  }
+  return start;
+}
+
+function checkPassSeasonExpiry() {
+  if (Date.now() - state.passSeasonStart < PASS_SEASON_DURATION_MS) return;
+  state.passSeasonStart = Date.now();
+  state.passXp = 0;
+  state.passClaimedTiers = [];
+  state.passSeasonNumber += 1;
+  storageSet('ec_passSeasonStart', String(state.passSeasonStart));
+  storageSet('ec_passXp', '0');
+  storageSet('ec_passClaimedTiers', '[]');
+  storageSet('ec_passSeasonNumber', String(state.passSeasonNumber));
+}
+
+// Highest tier fully funded by the given XP total (0 if not even tier 1 yet).
+function getPassTierForXp(xp) {
+  let cumulative = 0;
+  let tier = 0;
+  for (let i = 0; i < PASS_TIER_XP_REQUIRED.length; i++) {
+    cumulative += PASS_TIER_XP_REQUIRED[i];
+    if (xp >= cumulative) tier = i + 1;
+    else break;
+  }
+  return tier;
+}
+
+// { tier, xpIntoTier, xpForTier } describing progress toward the NEXT tier,
+// or null once every tier is maxed (progress bar shows full/complete instead).
+function getPassProgress() {
+  const tier = getPassTierForXp(state.passXp);
+  if (tier >= PASS_TIER_COUNT) return null;
+  let cumulative = 0;
+  for (let i = 0; i < tier; i++) cumulative += PASS_TIER_XP_REQUIRED[i];
+  return {
+    tier,
+    xpIntoTier: state.passXp - cumulative,
+    xpForTier: PASS_TIER_XP_REQUIRED[tier],
+  };
+}
+
+function awardPassXp(amount) {
+  if (amount <= 0) return;
+  state.passXp += Math.round(amount);
+  storageSet('ec_passXp', String(state.passXp));
+}
+
+function claimPassTier(tier) {
+  if (state.passClaimedTiers.includes(tier)) return;
+  if (getPassTierForXp(state.passXp) < tier) return;
+
+  const reward = PASS_REWARDS[tier - 1];
+  if (reward.type === 'gold') {
+    state.bankedGold += reward.amount;
+    storageSet('ec_bankedGold', String(state.bankedGold));
+  } else if (reward.type === 'trail' && !state.unlockedTrails.includes(reward.trailId)) {
+    state.unlockedTrails.push(reward.trailId);
+    storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
+  }
+  state.passClaimedTiers.push(tier);
+  storageSet('ec_passClaimedTiers', JSON.stringify(state.passClaimedTiers));
+}
+
+// Runs once at script load, after the Pass constants above and the `state`
+// object (further up the file — safe because `state` itself is only *read*
+// here, not depended on for anything except starting the season clock) both
+// exist. Resets Pass progress if the 45-day season already ended while the
+// player was away.
+checkPassSeasonExpiry();
 
 // ---------- Juice: particles ----------
 const particles = [];
@@ -1217,6 +1376,7 @@ const museumScreen = document.getElementById('museum-screen');
 const contractsScreen = document.getElementById('contracts-screen');
 const loadoutScreen = document.getElementById('loadout-screen');
 const trailsScreen = document.getElementById('trails-screen');
+const passScreen = document.getElementById('pass-screen');
 const welcomeBackScreen = document.getElementById('welcome-back-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
@@ -1420,6 +1580,7 @@ function openOverlay(screenEl) {
   contractsScreen.classList.add('hidden');
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
+  passScreen.classList.add('hidden');
   startScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   screenEl.classList.remove('hidden');
@@ -1596,6 +1757,7 @@ function goToMainMenu() {
   contractsScreen.classList.add('hidden');
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
+  passScreen.classList.add('hidden');
   pauseBtn.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
   startScreen.classList.remove('hidden');
@@ -1729,15 +1891,17 @@ function renderTrailsScreen() {
     if (isSelected) {
       actionHtml = `<button class="trail-select-btn" disabled>Selected</button>`;
     } else if (unlocked) {
-      actionHtml = `<button class="trail-select-btn" data-trail-id="${trail.id}">Select</button>`;
+      actionHtml = `<button class="trail-select-btn" data-trail-id="${trail.id}" data-owned="1">Select</button>`;
+    } else if (trail.passTier !== undefined) {
+      actionHtml = `<button class="trail-select-btn pass-locked" disabled>Season Pass — Tier ${trail.passTier}</button>`;
     } else {
       actionHtml = `<button class="trail-select-btn" data-trail-id="${trail.id}">Unlock — ${trail.cost} Gold</button>`;
     }
 
     return `
-      <div class="trail-card ${isSelected ? 'active' : ''}">
+      <div class="trail-card ${isSelected ? 'active' : ''} ${trail.passTier !== undefined ? 'pass-exclusive' : ''}">
         <div class="trail-swatch" style="background:${swatchColor};"></div>
-        <div class="trail-name">${trail.name}</div>
+        <div class="trail-name">${trail.name}${trail.passTier !== undefined ? ' <span class="pass-badge">PASS</span>' : ''}</div>
         ${actionHtml}
       </div>
     `;
@@ -1746,8 +1910,76 @@ function renderTrailsScreen() {
   // re-wire select/unlock buttons since innerHTML was just replaced
   trailListEl.querySelectorAll('.trail-select-btn[data-trail-id]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      buyOrSelectTrail(btn.dataset.trailId);
+      if (btn.dataset.owned) selectOwnedTrail(btn.dataset.trailId);
+      else buyOrSelectTrail(btn.dataset.trailId);
       renderTrailsScreen();
+    });
+  });
+}
+
+// ---------- Season Pass overlay ----------
+const passSeasonInfoEl = document.getElementById('pass-season-info');
+const passProgressSummaryEl = document.getElementById('pass-progress-summary');
+const passProgressBarInner = document.getElementById('pass-progress-bar-inner');
+const passProgressLabelEl = document.getElementById('pass-progress-label');
+const passTierListEl = document.getElementById('pass-tier-list');
+
+document.getElementById('start-pass-btn').addEventListener('click', openPassScreen);
+document.getElementById('close-pass-btn').addEventListener('click', () => {
+  closeOverlay(passScreen);
+});
+
+function openPassScreen() {
+  checkPassSeasonExpiry();
+  renderPassScreen();
+  openOverlay(passScreen);
+}
+
+function renderPassScreen() {
+  const daysLeft = Math.max(0, Math.ceil((PASS_SEASON_DURATION_MS - (Date.now() - state.passSeasonStart)) / (24 * 60 * 60 * 1000)));
+  passSeasonInfoEl.textContent = `Season ${state.passSeasonNumber} · Free Track · Ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+
+  const currentTier = getPassTierForXp(state.passXp);
+  passProgressSummaryEl.textContent = `Tier ${currentTier} / ${PASS_TIER_COUNT}`;
+
+  const progress = getPassProgress();
+  if (progress) {
+    passProgressBarInner.style.width = Math.round((progress.xpIntoTier / progress.xpForTier) * 100) + '%';
+    passProgressLabelEl.textContent = `${progress.xpIntoTier} / ${progress.xpForTier} XP to Tier ${progress.tier + 1}`;
+  } else {
+    passProgressBarInner.style.width = '100%';
+    passProgressLabelEl.textContent = 'All tiers reached!';
+  }
+
+  passTierListEl.innerHTML = PASS_REWARDS.map((reward) => {
+    const claimed = state.passClaimedTiers.includes(reward.tier);
+    const reached = currentTier >= reward.tier;
+    const swatch = reward.type === 'trail'
+      ? (TRAIL_DEFS.find((t) => t.id === reward.trailId).color(BIOMES[0]))
+      : '#ffd700';
+
+    let actionHtml;
+    if (claimed) {
+      actionHtml = `<div class="pass-tier-claimed">✓ Claimed</div>`;
+    } else if (reached) {
+      actionHtml = `<button class="pass-claim-btn" data-tier="${reward.tier}">Claim</button>`;
+    } else {
+      actionHtml = `<div class="pass-tier-locked">Tier ${reward.tier}</div>`;
+    }
+
+    return `
+      <div class="pass-tier-row ${claimed ? 'claimed' : reached ? 'claimable' : 'locked'}">
+        <div class="pass-tier-icon" style="background:${swatch};"></div>
+        <div class="pass-tier-reward-label">${reward.label}</div>
+        ${actionHtml}
+      </div>
+    `;
+  }).join('');
+
+  passTierListEl.querySelectorAll('.pass-claim-btn[data-tier]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      claimPassTier(parseInt(btn.dataset.tier, 10));
+      renderPassScreen();
     });
   });
 }
@@ -1894,6 +2126,7 @@ function startGame() {
   contractsScreen.classList.add('hidden');
   loadoutScreen.classList.add('hidden');
   trailsScreen.classList.add('hidden');
+  passScreen.classList.add('hidden');
   manualPauseScreen.classList.add('hidden');
   newHighscoreBadge.classList.add('hidden');
   pauseBtn.classList.remove('hidden');
@@ -1918,6 +2151,7 @@ function endGame(causeOfDeath) {
   if (state.pendingContractGold > 0) {
     syncBankedGold(state.pendingContractGold);
   }
+  awardPassXp(state.maxDepthReached * PASS_XP_PER_METER_DEPTH + state.gold * PASS_XP_PER_GOLD);
 
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
   sdkSendScore(currentScore());
@@ -2193,6 +2427,7 @@ function updateContractProgress() {
     goal.completedToday = true;
     saveDailyContracts();
     state.pendingContractGold += goal.bonusGold;
+    awardPassXp(PASS_XP_PER_CONTRACT);
     queueToast('Contract Complete! ' + template.label(goal.target) + ' (+' + goal.bonusGold + ' Gold)');
   }
 }

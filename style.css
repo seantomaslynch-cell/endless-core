@@ -448,6 +448,10 @@ body.paused #gameCanvas {
 #start-loadout-btn { --btn-grad: linear-gradient(135deg, #3fc1c9, #0f6e75 55%, #073c40); }
 #start-contracts-btn { --btn-grad: linear-gradient(135deg, #6fbf73, #256029 55%, #123815); }
 #start-trails-btn { --btn-grad: linear-gradient(135deg, #e2779a, #a01248 55%, #5c0a29); }
+/* Topaz/amber — the odd one out on purpose. Every other tile is a "cool"
+   gem; Season Pass is warm gold to match the title treatment and read as
+   the marquee feature rather than just a sixth equal option. */
+#start-pass-btn { --btn-grad: linear-gradient(135deg, #ffd54f, #c8860d 55%, #7a4f00); }
 
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action
    type from the primary actions around them — leaving the run — so they
@@ -692,7 +696,13 @@ body.paused #gameCanvas {
   margin-top: 8px;
 }
 
-.class-select-btn {
+/* .overlay prefix isn't decorative here — it raises specificity above the
+   shared ".overlay button" default-green rule (class+element beats a bare
+   class), which otherwise silently wins and overrides --btn-grad's own
+   color. Same fix applied to .trail-select-btn and .pass-claim-btn below;
+   found by actually looking at the rendered Loadout screen, not just
+   reading the CSS. */
+.overlay .class-select-btn {
   --btn-grad: linear-gradient(135deg, #4dd0e1, #00838f 60%, #004d5c);
   pointer-events: auto;
   width: 100%;
@@ -757,6 +767,23 @@ body.paused #gameCanvas {
   background: rgba(255, 215, 0, 0.08);
 }
 
+.trail-card.pass-exclusive {
+  border-left-color: #ffb300;
+}
+
+.pass-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #2b1c00;
+  background: linear-gradient(135deg, #ffe082, #ffb300);
+  border-radius: 4px;
+  padding: 2px 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 .trail-swatch {
   width: 28px;
   height: 28px;
@@ -771,7 +798,7 @@ body.paused #gameCanvas {
   font-weight: bold;
 }
 
-.trail-select-btn {
+.overlay .trail-select-btn {
   --btn-grad: linear-gradient(135deg, #f48fb1, #c2185b 60%, #880e4f);
   pointer-events: auto;
   min-width: 0;
@@ -805,4 +832,149 @@ body.paused #gameCanvas {
   text-shadow: none;
   cursor: default;
   opacity: 1;
+}
+
+/* Locked Season Pass trails must NOT look like the gold "Selected" state
+   above (that reads as "this is active," not "you don't own this yet") —
+   muted gray instead, matching the Loadout screen's locked class-card look. */
+.trail-select-btn.pass-locked:disabled {
+  --btn-grad: linear-gradient(135deg, #6b6b6b, #3a3a3a);
+  color: rgba(255, 255, 255, 0.7);
+  opacity: 0.85;
+}
+
+/* ---------- Season Pass overlay ---------- */
+#pass-season-info {
+  color: #ffd54f;
+  font-weight: bold;
+}
+
+#pass-progress-summary {
+  font-size: 18px;
+  font-weight: bold;
+  color: #ffd700;
+  letter-spacing: 0.5px;
+}
+
+/* Same visual language as the in-run health/overdrive bars (dark pill,
+   bright border, gradient fill) so the Pass's gold progress bar reads as
+   part of the same UI system instead of a bolted-on new widget. */
+#pass-progress-bar-outer {
+  width: 100%;
+  max-width: 300px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #ffd54f;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+#pass-progress-bar-inner {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #ffb300, #ffe082);
+  transition: width 0.3s ease;
+}
+
+#pass-progress-label {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-top: -6px;
+}
+
+/* The one overlay with genuinely more content than a phone screen fits (25
+   tiers) — every other overlay in the game relies on content just fitting,
+   this is the one place that needs a real scroll container. touch-action
+   must be set explicitly here since the global `touch-action: none` on body
+   is non-inherited and would otherwise block touch-scrolling this list on
+   the iOS build. */
+.pass-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+  max-height: 42vh;
+  overflow-y: auto;
+  touch-action: pan-y;
+  padding-right: 2px;
+  margin-top: 2px;
+}
+
+.pass-tier-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-left: 4px solid #6b6b6b;
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.pass-tier-row.claimable {
+  border-left-color: #ffd700;
+  background: rgba(255, 215, 0, 0.10);
+}
+
+.pass-tier-row.claimed {
+  border-left-color: #4caf50;
+  opacity: 0.7;
+}
+
+.pass-tier-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px 1px currentColor;
+}
+
+.pass-tier-reward-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.pass-tier-locked {
+  font-size: 12px;
+  opacity: 0.6;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.pass-tier-claimed {
+  font-size: 12px;
+  color: #81c784;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.overlay .pass-claim-btn {
+  --btn-grad: linear-gradient(135deg, #ffd54f, #ffa000 60%, #c8860d);
+  pointer-events: auto;
+  min-width: 0;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: bold;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 50%),
+    var(--btn-grad);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  color: #2b1c00;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.1s ease, filter 0.15s ease;
+}
+
+.pass-claim-btn:active {
+  transform: scale(0.95);
+  filter: brightness(0.92);
 }

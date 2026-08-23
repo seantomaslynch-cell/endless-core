@@ -59,6 +59,7 @@
     <p id="start-highscore">High Score: 0</p>
     <button id="start-btn" class="menu-primary-btn">Start Drilling</button>
     <div class="menu-secondary-grid">
+      <button id="start-pass-btn" class="menu-secondary-btn">Season Pass</button>
       <button id="start-upgrades-btn" class="menu-secondary-btn">Upgrades</button>
       <button id="start-museum-btn" class="menu-secondary-btn">Museum</button>
       <button id="start-loadout-btn" class="menu-secondary-btn">Loadout</button>
@@ -130,6 +131,20 @@
     <p>Banked Gold: <span id="trails-banked-gold">0</span></p>
     <div class="trail-list" id="trail-list"></div>
     <button id="close-trails-btn">Close</button>
+  </div>
+
+  <!-- Season Pass Overlay — free-track progression: play to earn Pass XP,
+       climb tiers, claim Gold + exclusive Trails. No real money involved. -->
+  <div id="pass-screen" class="overlay hidden">
+    <h1>SEASON PASS</h1>
+    <p id="pass-season-info" class="hint">Season 1 · Free Track</p>
+    <div id="pass-progress-summary">Tier 0 / 25</div>
+    <div id="pass-progress-bar-outer">
+      <div id="pass-progress-bar-inner"></div>
+    </div>
+    <p id="pass-progress-label">0 / 150 XP to Tier 1</p>
+    <div class="pass-tier-list" id="pass-tier-list"></div>
+    <button id="close-pass-btn">Close</button>
   </div>
 
   <!-- Chest Overlay (mid-run power-up) -->
