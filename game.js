@@ -2681,22 +2681,77 @@ function drawGoldBlock(screenX, screenY, nowMs) {
   ctx.fill();
 }
 
+// Reads as an actual supply crate, not a decorative stripe pattern — the
+// old version (purple fill + diagonal gold stripes) had no crate
+// iconography at all and, worse, shared its purple backdrop with the RELIC
+// block right below, so the two "special, non-diggable" blocks looked like
+// variants of the same thing instead of two different rewards. Wood crate
+// + gold latch + a gold pulsing glow (same "come get me" language the gold
+// ore already uses) makes it unambiguous at a glance: reinforced supply
+// container, worth hitting.
 function drawChestBlock(screenX, screenY) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(screenX, screenY, BLOCK, BLOCK);
-  ctx.clip();
-  ctx.fillStyle = '#6a1b9a';
+  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
+  const cx = screenX + BLOCK / 2;
+  const cy = screenY + BLOCK / 2;
+
+  ctx.fillStyle = '#241708';
   ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
-  ctx.strokeStyle = '#ffd700';
-  ctx.lineWidth = 6;
-  for (let i = -BLOCK; i < BLOCK * 2; i += 14) {
-    ctx.beginPath();
-    ctx.moveTo(screenX + i, screenY);
-    ctx.lineTo(screenX + i + BLOCK, screenY + BLOCK);
-    ctx.stroke();
-  }
+
+  // Inviting glow behind the crate, pulsing like gold ore does — the same
+  // visual cue for "this one's good, go get it."
+  ctx.save();
+  ctx.globalAlpha = 0.25 + pulse * 0.25;
+  const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, BLOCK * 0.62);
+  glow.addColorStop(0, '#ffe082');
+  glow.addColorStop(1, 'rgba(255, 224, 130, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
   ctx.restore();
+
+  const bodyX = screenX + BLOCK * 0.10;
+  const bodyW = BLOCK * 0.80;
+  const bodyTop = screenY + BLOCK * 0.40;
+  const bodyH = BLOCK * 0.50;
+  const lidTop = screenY + BLOCK * 0.20;
+  const lidH = bodyTop - lidTop;
+
+  // Body (darker wood)
+  const bodyGrad = ctx.createLinearGradient(bodyX, bodyTop, bodyX, bodyTop + bodyH);
+  bodyGrad.addColorStop(0, '#7a4f28');
+  bodyGrad.addColorStop(1, '#4a2e16');
+  ctx.fillStyle = bodyGrad;
+  ctx.fillRect(bodyX, bodyTop, bodyW, bodyH);
+
+  // Lid (lighter wood, distinct band on top of the body)
+  const lidGrad = ctx.createLinearGradient(bodyX, lidTop, bodyX, lidTop + lidH);
+  lidGrad.addColorStop(0, '#c9903f');
+  lidGrad.addColorStop(1, '#9c6a2e');
+  ctx.fillStyle = lidGrad;
+  ctx.fillRect(bodyX, lidTop, bodyW, lidH);
+
+  // Reinforcing metal bands (vertical), crossing lid + body as one crate
+  ctx.strokeStyle = 'rgba(40, 40, 40, 0.85)';
+  ctx.lineWidth = 3;
+  [bodyX + bodyW * 0.22, bodyX + bodyW * 0.78].forEach((bandX) => {
+    ctx.beginPath();
+    ctx.moveTo(bandX, lidTop);
+    ctx.lineTo(bandX, bodyTop + bodyH);
+    ctx.stroke();
+  });
+
+  // Gold latch at the lid/body seam — the one bright focal point
+  ctx.fillStyle = `rgba(255, 215, 0, ${0.85 + pulse * 0.15})`;
+  ctx.beginPath();
+  ctx.arc(cx, bodyTop, BLOCK * 0.09, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#7a4f00';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Crate outline + tile border
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(bodyX, lidTop, bodyW, bodyH + lidH);
   ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.lineWidth = 1;
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
