@@ -412,8 +412,15 @@ body.paused #gameCanvas {
   margin-top: 12px;
 }
 
+/* Clash Royale-style nav: every secondary action shares ONE color family
+   (weathered bronze/leather, matching the drill's own metal + the cave's
+   rock) instead of a different hue per button. A six-color rainbow in a
+   tight 2x3 grid reads as busy rather than expensive; a real premium nav
+   uses one consistent panel color and lets icons + labels do the
+   differentiating, with the gold rim (kept from before) as the one
+   unifying accent. */
 .overlay .menu-secondary-btn {
-  --btn-grad: linear-gradient(135deg, #888, #555);
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 55%, #3a2c1c);
   min-width: 0;
   padding: 13px 10px;
   font-size: 13px;
@@ -421,9 +428,6 @@ body.paused #gameCanvas {
   margin-top: 0;
   border-width: 1px;
   border-style: solid;
-  /* Warm gold rim (not plain white) ties all five colors into one
-     "jeweled dashboard tile" family instead of reading as five unrelated
-     crayon-box hues. */
   border-color: rgba(255, 213, 130, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 45%),
@@ -439,22 +443,6 @@ body.paused #gameCanvas {
   transform: scale(0.95);
   filter: brightness(0.92);
 }
-
-/* Each secondary action keeps its own color identity (still matches the
-   full overlay/Close button of that screen elsewhere in the app) so the
-   color-coding stays useful as a memory aid — but deepened into richer
-   jewel tones (sapphire / amethyst / emerald teal / emerald / ruby)
-   instead of bright Material-style primaries, so the set reads as
-   "expensive gemstones" rather than "candy." */
-#start-upgrades-btn { --btn-grad: linear-gradient(135deg, #5b9bd9, #1a56a3 55%, #0a2f5c); }
-#start-museum-btn { --btn-grad: linear-gradient(135deg, #b47cc7, #6a1b8f 55%, #37134a); }
-#start-loadout-btn { --btn-grad: linear-gradient(135deg, #3fc1c9, #0f6e75 55%, #073c40); }
-#start-contracts-btn { --btn-grad: linear-gradient(135deg, #6fbf73, #256029 55%, #123815); }
-#start-trails-btn { --btn-grad: linear-gradient(135deg, #e2779a, #a01248 55%, #5c0a29); }
-/* Topaz/amber — the odd one out on purpose. Every other tile is a "cool"
-   gem; Season Pass is warm gold to match the title treatment and read as
-   the marquee feature rather than just a sixth equal option. */
-#start-pass-btn { --btn-grad: linear-gradient(135deg, #ffd54f, #c8860d 55%, #7a4f00); }
 
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action
    type from the primary actions around them — leaving the run — so they
