@@ -650,27 +650,55 @@ function loadOrGenerateDailyContracts() {
   return result;
 }
 
-// Local (device-scheduled, no server/APNs needed) reminder for when today's
-// contracts refresh — the same retention lever mobile games use for "come
-// back, something's ready." Re-scheduling with the SAME fixed id on every
-// app open is deliberately idempotent: it always targets generatedAt + 24h
-// for whatever contract set is currently active, and replaces rather than
-// stacks, so opening the app 10 times in a day never produces 10 pending
-// notifications.
-const CONTRACT_REFRESH_NOTIFICATION_ID = 1001;
+// ---------- Local notifications: a small, deliberately-bounded return system ----------
+// Researched against real mobile-game guidance rather than guessed: lead
+// with a concrete benefit ("Gold is waiting"), not a feature announcement
+// ("New event!"), and cap total volume — sources converge on roughly 2-3
+// re-engagement pushes per WEEK as the conservative, non-annoying ceiling,
+// with lapsed/dormant players needing progressively less (every-other-day at
+// most, dormant players ~1/week). This system can send at most 3
+// notifications to a player who never returns, spread across 3 days, then
+// nothing further until they come back — comfortably under that ceiling:
+//   1. Daily Contracts refreshed (~24h out, tied to the actual refresh)
+//   2. Idle Gold ready to collect (~6h after leaving)
+//   3. One gentle "come back" nudge (~3 days after leaving)
+// (2) and (3) are scheduled when the player actually leaves (handleSdkPause,
+// the same "platform pause = player left" signal already used for the
+// offline-mining clock) and CANCELED on return (handleSdkResume) so a quick
+// back-and-forth never leaves a stale notification pending, and a player who
+// keeps playing regularly never sees either one.
+function getLocalNotificationsPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) || null;
+}
 
+// Shared by every scheduling call below — checks first so an already-granted
+// or already-denied player is never re-prompted, requests only on the first
+// real attempt, and a decline is respected rather than retried.
+async function ensureNotificationPermission(plugin) {
+  let perm = await plugin.checkPermissions();
+  if (perm.display !== 'granted') {
+    perm = await plugin.requestPermissions();
+  }
+  return perm.display === 'granted';
+}
+
+const CONTRACT_REFRESH_NOTIFICATION_ID = 1001;
+const IDLE_GOLD_NOTIFICATION_ID = 1002;
+const WINBACK_NOTIFICATION_ID = 1003;
+const IDLE_GOLD_NOTIFICATION_DELAY_MS = 6 * 60 * 60 * 1000; // 6h — a worthwhile chunk of idle Gold (60 at the 10/hr rate) without being the same moment as the win-back nudge
+const WINBACK_NOTIFICATION_DELAY_MS = 3 * 24 * 60 * 60 * 1000; // 3 days — one nudge, not a daily nag
+
+// Re-scheduling with the SAME fixed id on every app open is deliberately
+// idempotent: it always targets generatedAt + 24h for whatever contract set
+// is currently active, and replaces rather than stacks, so opening the app
+// 10 times in a day never produces 10 pending notifications.
 async function scheduleContractRefreshNotification(generatedAt) {
   if (!isNativeMobile) return; // no local-notifications concept on web/Playables
-  const plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+  const plugin = getLocalNotificationsPlugin();
   if (!plugin) return;
 
   try {
-    let perm = await plugin.checkPermissions();
-    if (perm.display !== 'granted') {
-      perm = await plugin.requestPermissions();
-    }
-    if (perm.display !== 'granted') return; // declined — respect it, don't ask again this call
-
+    if (!(await ensureNotificationPermission(plugin))) return;
     await plugin.cancel({ notifications: [{ id: CONTRACT_REFRESH_NOTIFICATION_ID }] });
     await plugin.schedule({
       notifications: [{
@@ -682,7 +710,50 @@ async function scheduleContractRefreshNotification(generatedAt) {
     });
   } catch (e) {
     // best-effort only — a failed/declined notification never blocks gameplay
-    console.log('LocalNotifications: schedule failed', e);
+    console.log('LocalNotifications: contract refresh schedule failed', e);
+  }
+}
+
+// Called from handleSdkPause() — the moment the player actually leaves.
+async function scheduleReturnNotifications() {
+  if (!isNativeMobile) return;
+  const plugin = getLocalNotificationsPlugin();
+  if (!plugin) return;
+
+  try {
+    if (!(await ensureNotificationPermission(plugin))) return;
+    const now = Date.now();
+    await plugin.schedule({
+      notifications: [
+        {
+          id: IDLE_GOLD_NOTIFICATION_ID,
+          title: 'Your rig is still drilling!',
+          body: "Gold has been piling up while you're away — come collect it.",
+          schedule: { at: new Date(now + IDLE_GOLD_NOTIFICATION_DELAY_MS) },
+        },
+        {
+          id: WINBACK_NOTIFICATION_ID,
+          title: 'The mine misses you',
+          body: 'Gold is waiting, your Season Pass is still climbing, and there are fresh contracts to complete.',
+          schedule: { at: new Date(now + WINBACK_NOTIFICATION_DELAY_MS) },
+        },
+      ],
+    });
+  } catch (e) {
+    console.log('LocalNotifications: return-nudge schedule failed', e);
+  }
+}
+
+// Called from handleSdkResume() — the player is back, so both "come back"
+// notifications are moot until they leave again.
+async function cancelReturnNotifications() {
+  if (!isNativeMobile) return;
+  const plugin = getLocalNotificationsPlugin();
+  if (!plugin) return;
+  try {
+    await plugin.cancel({ notifications: [{ id: IDLE_GOLD_NOTIFICATION_ID }, { id: WINBACK_NOTIFICATION_ID }] });
+  } catch (e) {
+    // best-effort — a failed cancel just means a possibly-stale notification stays scheduled, never fatal
   }
 }
 
@@ -1559,6 +1630,7 @@ function handleSdkPause() {
   }
   muteAudio();
   storageSet('ec_lastPlayedTimestamp', String(Date.now())); // platform pause = player left; freshen the offline-mining clock
+  scheduleReturnNotifications(); // fire-and-forget, native-only — see the Local notifications section above
 }
 
 function handleSdkResume() {
@@ -1571,6 +1643,7 @@ function handleSdkResume() {
     lastFrameTime = performance.now();
     rafId = requestAnimationFrame(loop);
   }
+  cancelReturnNotifications(); // the player is back — both "come back" nudges are moot until they leave again
 }
 
 // ---------- Input handling ----------
