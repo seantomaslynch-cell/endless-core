@@ -48,9 +48,13 @@ body.paused #gameCanvas {
 
 #hud {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 12px;
+  /* env(safe-area-inset-top) is 0 on anything without a notch/dynamic
+     island (desktop browsers, older phones) so this is a no-op there —
+     it only matters on the iOS native build, where the WebView renders
+     full-screen behind the status bar/dynamic island by default. */
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  right: calc(12px + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -175,7 +179,7 @@ body.paused #gameCanvas {
 
 #toast {
   position: absolute;
-  top: 0;
+  top: env(safe-area-inset-top);
   left: 50%;
   max-width: 85%;
   transform: translate(-50%, -120%);

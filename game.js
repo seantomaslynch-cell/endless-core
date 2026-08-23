@@ -74,7 +74,13 @@ const LOGICAL_H = 640;
 const MIN_COLS = 9;
 const MAX_COLS = 26;
 const initialAspect = window.innerWidth / window.innerHeight;
-const COLS = clamp(Math.round((initialAspect * LOGICAL_H) / BLOCK), MIN_COLS, MAX_COLS);
+// A freshly-created WebView/tab can still report 0x0 before its first
+// layout pass, making initialAspect (and everything derived from it) NaN —
+// and since COLS is a one-time const, that would permanently break rendering
+// for the rest of the session. Fall back to the original 9-column portrait
+// count in that case rather than trusting an unfinished layout.
+const computedCols = Math.round((initialAspect * LOGICAL_H) / BLOCK);
+const COLS = clamp(Number.isFinite(computedCols) ? computedCols : MIN_COLS, MIN_COLS, MAX_COLS);
 const LOGICAL_W = COLS * BLOCK;
 
 canvas.width = LOGICAL_W;
@@ -1323,11 +1329,41 @@ async function watchAdDoubleGold() {
 }
 doubleGoldBtn.addEventListener('click', watchAdDoubleGold);
 
+// ---------- Shared overlay open/close ----------
+// Upgrades/Museum/Contracts/Loadout/Trails are all reachable from either
+// the Start Screen or the Game Over screen. Without this, opening one from
+// Game Over left gameoverScreen visible underneath (it has no owning
+// "close" of its own to fall back on), so both rendered at once through
+// each other's translucent background — exactly the double-exposed text
+// bug reported from a real device. openOverlay() remembers whichever base
+// screen (Start or Game Over) was actually showing and closeOverlay()
+// restores it, instead of every overlay guessing/hardcoding one.
+let overlayReturnScreen = null;
+
+function openOverlay(screenEl) {
+  if (!startScreen.classList.contains('hidden')) overlayReturnScreen = startScreen;
+  else if (!gameoverScreen.classList.contains('hidden')) overlayReturnScreen = gameoverScreen;
+  upgradesScreen.classList.add('hidden');
+  museumScreen.classList.add('hidden');
+  contractsScreen.classList.add('hidden');
+  loadoutScreen.classList.add('hidden');
+  trailsScreen.classList.add('hidden');
+  startScreen.classList.add('hidden');
+  gameoverScreen.classList.add('hidden');
+  screenEl.classList.remove('hidden');
+}
+
+function closeOverlay(screenEl) {
+  screenEl.classList.add('hidden');
+  if (overlayReturnScreen) overlayReturnScreen.classList.remove('hidden');
+  overlayReturnScreen = null;
+}
+
 document.getElementById('upgrades-btn').addEventListener('click', openUpgradesScreen);
 document.getElementById('start-upgrades-btn').addEventListener('click', openUpgradesScreen);
 
 document.getElementById('close-upgrades-btn').addEventListener('click', () => {
-  upgradesScreen.classList.add('hidden');
+  closeOverlay(upgradesScreen);
 });
 
 document.getElementById('fuel-upgrade-btn').addEventListener('click', () => {
@@ -1349,7 +1385,7 @@ document.getElementById('alloy-upgrade-btn').addEventListener('click', () => {
 
 function openUpgradesScreen() {
   renderUpgradesScreen();
-  upgradesScreen.classList.remove('hidden');
+  openOverlay(upgradesScreen);
 }
 
 // Shared renderer for all four Tech Tree cards — same "Level X/MAX — desc
@@ -1455,12 +1491,12 @@ const relicGridEl = document.getElementById('relic-grid');
 document.getElementById('museum-btn').addEventListener('click', openMuseumScreen);
 document.getElementById('start-museum-btn').addEventListener('click', openMuseumScreen);
 document.getElementById('close-museum-btn').addEventListener('click', () => {
-  museumScreen.classList.add('hidden');
+  closeOverlay(museumScreen);
 });
 
 function openMuseumScreen() {
   renderMuseum();
-  museumScreen.classList.remove('hidden');
+  openOverlay(museumScreen);
 }
 
 function renderMuseum() {
@@ -1484,12 +1520,12 @@ const contractListEl = document.getElementById('contract-list');
 
 document.getElementById('start-contracts-btn').addEventListener('click', openContractsScreen);
 document.getElementById('close-contracts-btn').addEventListener('click', () => {
-  contractsScreen.classList.add('hidden');
+  closeOverlay(contractsScreen);
 });
 
 function openContractsScreen() {
   renderContracts();
-  contractsScreen.classList.remove('hidden');
+  openOverlay(contractsScreen);
 }
 
 function renderContracts() {
@@ -1509,12 +1545,12 @@ const classListEl = document.getElementById('class-list');
 
 document.getElementById('start-loadout-btn').addEventListener('click', openLoadoutScreen);
 document.getElementById('close-loadout-btn').addEventListener('click', () => {
-  loadoutScreen.classList.add('hidden');
+  closeOverlay(loadoutScreen);
 });
 
 function openLoadoutScreen() {
   renderLoadoutScreen();
-  loadoutScreen.classList.remove('hidden');
+  openOverlay(loadoutScreen);
 }
 
 function renderLoadoutScreen() {
@@ -1554,12 +1590,12 @@ function renderLoadoutScreen() {
 // ---------- Trails overlay (cosmetics) ----------
 document.getElementById('start-trails-btn').addEventListener('click', openTrailsScreen);
 document.getElementById('close-trails-btn').addEventListener('click', () => {
-  trailsScreen.classList.add('hidden');
+  closeOverlay(trailsScreen);
 });
 
 function openTrailsScreen() {
   renderTrailsScreen();
-  trailsScreen.classList.remove('hidden');
+  openOverlay(trailsScreen);
 }
 
 function renderTrailsScreen() {
