@@ -344,14 +344,14 @@ body.paused #gameCanvas {
    button/screen below instead of overriding background wholesale, so every
    button in the game gets the same premium treatment automatically. */
 .overlay button {
-  --btn-grad: linear-gradient(135deg, #7ed67f 0%, #43a047 60%, #2e7d32 100%);
+  --btn-grad: linear-gradient(135deg, #9c8163 0%, #5c4830 55%, #3a2c1c 100%);
   pointer-events: auto;
   min-width: 260px;
   padding: 15px 20px;
   font-size: 15px;
   font-weight: bold;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 213, 130, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
     var(--btn-grad);
@@ -456,41 +456,18 @@ body.paused #gameCanvas {
   color: #fff;
 }
 
-/* Game Over screen gets the same Clash Royale-style treatment as the start
-   screen's secondary nav: one consistent bronze/leather color instead of
-   five unrelated hues (orange Revive, yellow 2x Gold, blue Upgrades, purple
-   Museum, red Restart) fighting for attention. Icons (see index.html)
-   differentiate instead. #close-upgrades-btn/#close-museum-btn are a
-   DIFFERENT screen (the Tech Tree/Museum overlays' own Close buttons) and
-   deliberately keep their own color — split out from these so changing the
-   Game Over screen doesn't touch them. */
-#manual-pause-resume-btn,
-#revive-btn,
-#double-gold-btn,
-#upgrades-btn,
-#restart-btn,
-#museum-btn {
-  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 55%, #3a2c1c);
-  border-color: rgba(255, 213, 130, 0.45);
-}
-
-#close-upgrades-btn { --btn-grad: linear-gradient(135deg, #64b5f6, #1976d2 60%, #0d47a1); }
-
-#close-museum-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 60%, #4a148c); }
-
-/* Start-screen secondary buttons (Upgrades/Museum/Loadout/Contracts/Trails)
-   are deliberately NOT colored per-feature here anymore — see
-   .overlay .menu-secondary-btn above, which gives them a uniform muted
-   look as a group. The Close button on each respective overlay keeps its
-   own accent color below. */
-
-#close-contracts-btn { --btn-grad: linear-gradient(135deg, #81c784, #388e3c 60%, #1b5e20); }
-
-#close-loadout-btn { --btn-grad: linear-gradient(135deg, #4dd0e1, #00838f 60%, #004d5c); }
-
-#chest-ad-btn { --btn-grad: linear-gradient(135deg, #ce93d8, #8e24aa 55%, #4a148c); }
-
-#chest-skip-btn { --btn-grad: linear-gradient(135deg, #9e9e9e, #616161 60%, #333); }
+/* Every plain .overlay button (Resume, Revive, 2x Gold, Upgrades, Restart,
+   Museum, every screen's Close button, Chest's ad/skip buttons, and
+   anything else without its own override below) now gets its color from
+   the base ".overlay button" rule above — bronze/leather, same family as
+   the start screen's secondary nav. Per-feature accent colors (blue
+   Upgrades, purple Museum, teal Loadout, green Contracts, etc.) are gone
+   app-wide, not just on the two screens that prompted this — full
+   consistency was the explicit ask. .menu-primary-btn (Start Drilling)
+   is the one deliberate exception: it's the single most important action
+   in the whole app, and staying green keeps it readable as "the thing to
+   tap" rather than blending into the now-uniform secondary/utility set —
+   same principle top mobile games use for their one hero CTA. */
 
 .upgrade-card {
   width: 100%;
@@ -516,7 +493,7 @@ body.paused #gameCanvas {
 }
 
 .upgrade-card button {
-  --btn-grad: linear-gradient(135deg, #7ed67f, #43a047 60%, #2e7d32);
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 60%, #3a2c1c);
   pointer-events: auto;
   width: 100%;
   min-width: 0;
@@ -524,7 +501,7 @@ body.paused #gameCanvas {
   font-size: 14px;
   font-weight: bold;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 213, 130, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
     var(--btn-grad);
@@ -702,7 +679,7 @@ body.paused #gameCanvas {
    found by actually looking at the rendered Loadout screen, not just
    reading the CSS. */
 .overlay .class-select-btn {
-  --btn-grad: linear-gradient(135deg, #4dd0e1, #00838f 60%, #004d5c);
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 60%, #3a2c1c);
   pointer-events: auto;
   width: 100%;
   min-width: 0;
@@ -711,7 +688,7 @@ body.paused #gameCanvas {
   font-size: 13px;
   font-weight: bold;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 213, 130, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
     var(--btn-grad);
@@ -798,14 +775,14 @@ body.paused #gameCanvas {
 }
 
 .overlay .trail-select-btn {
-  --btn-grad: linear-gradient(135deg, #f48fb1, #c2185b 60%, #880e4f);
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 60%, #3a2c1c);
   pointer-events: auto;
   min-width: 0;
   padding: 10px 14px;
   font-size: 12px;
   font-weight: bold;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 213, 130, 0.45);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 50%),
     var(--btn-grad);
@@ -964,24 +941,28 @@ body.paused #gameCanvas {
   white-space: nowrap;
 }
 
+/* Bronze like every other button now — the "this tier is ready" signal
+   already lives on the row itself (.pass-tier-row.claimable's gold
+   border/background a few rules up), so the button doesn't need to repeat
+   it to stay legible as "claimable." */
 .overlay .pass-claim-btn {
-  --btn-grad: linear-gradient(135deg, #ffd54f, #ffa000 60%, #c8860d);
+  --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 60%, #3a2c1c);
   pointer-events: auto;
   min-width: 0;
   padding: 8px 14px;
   font-size: 12px;
   font-weight: bold;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 213, 130, 0.45);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 50%),
     var(--btn-grad);
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
     inset 0 -2px 4px rgba(0, 0, 0, 0.25);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  color: #2b1c00;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  color: #fff;
   cursor: pointer;
   white-space: nowrap;
   transition: transform 0.1s ease, filter 0.15s ease;
