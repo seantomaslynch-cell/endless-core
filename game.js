@@ -1792,10 +1792,12 @@ const alloyUpgradeBtn = document.getElementById('alloy-upgrade-btn');
 const trailListEl = document.getElementById('trail-list');
 const trailsBankedGoldEl = document.getElementById('trails-banked-gold');
 const welcomeBackGoldEl = document.getElementById('welcome-back-gold');
+const welcomeBackDoubleBtn = document.getElementById('welcome-back-double-btn');
 const reviveBtn = document.getElementById('revive-btn');
 const doubleGoldBtn = document.getElementById('double-gold-btn');
 const REVIVE_BTN_DEFAULT_TEXT = reviveBtn.textContent;
 const DOUBLE_GOLD_BTN_DEFAULT_TEXT = doubleGoldBtn.textContent;
+const WELCOME_BACK_DOUBLE_BTN_DEFAULT_TEXT = welcomeBackDoubleBtn.textContent;
 
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('restart-btn').addEventListener('click', startGame);
@@ -3549,6 +3551,12 @@ async function sdkLoadAndMergeIfAvailable() {
 const OFFLINE_GOLD_PER_HOUR = 10;
 const OFFLINE_CAP_MS = 24 * 60 * 60 * 1000;
 const OFFLINE_HEARTBEAT_MS = 15000;
+const REWARD_ID_WELCOME_BACK_DOUBLE = 'endlesscore-welcomeback-2x';
+
+// Held rather than banked immediately, so the rewarded-ad double-up below
+// has something to double before it's committed to bankedGold — same
+// "decide before it's final" shape as the Game Over screen's 2x Gold button.
+let pendingOfflineGold = 0;
 
 function checkOfflineEarnings() {
   const lastPlayedRaw = storageGet('ec_lastPlayedTimestamp');
@@ -3563,16 +3571,46 @@ function checkOfflineEarnings() {
   const earnedGold = Math.floor((elapsedMs / (60 * 60 * 1000)) * OFFLINE_GOLD_PER_HOUR);
   if (earnedGold <= 0) return;
 
-  syncBankedGold(earnedGold);
-  bankedGoldEl.textContent = state.bankedGold;
+  pendingOfflineGold = earnedGold;
   welcomeBackGoldEl.textContent = earnedGold;
+  welcomeBackDoubleBtn.textContent = WELCOME_BACK_DOUBLE_BTN_DEFAULT_TEXT;
+  welcomeBackDoubleBtn.disabled = false;
   welcomeBackScreen.classList.remove('hidden');
 }
 
 document.getElementById('welcome-back-btn').addEventListener('click', () => {
+  syncBankedGold(pendingOfflineGold);
+  pendingOfflineGold = 0;
   welcomeBackScreen.classList.add('hidden');
   updateStartScreenHud(); // the Gold pill needs to reflect what was just collected
 });
+
+// Mirrors watchAdDoubleGold() (Game Over screen) exactly — same one-shot,
+// stays-disabled-after-success shape, reusing the already-integrated AdMob
+// rewarded flow rather than adding any new ad surface.
+async function watchAdWelcomeBackDouble() {
+  if (welcomeBackDoubleBtn.disabled) return;
+  welcomeBackDoubleBtn.disabled = true;
+  welcomeBackDoubleBtn.textContent = 'Loading Ad...';
+
+  const watched = await showRewardedVideo(REWARD_ID_WELCOME_BACK_DOUBLE);
+
+  if (watched) {
+    console.log('AD: Welcome Back 2x ad watched — doubling pending offline Gold');
+    pendingOfflineGold *= 2;
+    welcomeBackGoldEl.textContent = pendingOfflineGold;
+    welcomeBackDoubleBtn.textContent = 'Gold Doubled!';
+    // stays disabled — one double per Welcome Back, same rule as Game Over's 2x Gold
+  } else {
+    console.log('AD: Welcome Back 2x ad failed to load / was not completed');
+    welcomeBackDoubleBtn.textContent = 'Ad Unavailable — Try Again';
+    setTimeout(() => {
+      welcomeBackDoubleBtn.textContent = WELCOME_BACK_DOUBLE_BTN_DEFAULT_TEXT;
+      welcomeBackDoubleBtn.disabled = false;
+    }, 1500);
+  }
+}
+welcomeBackDoubleBtn.addEventListener('click', watchAdWelcomeBackDouble);
 
 // ---------- Login streak ----------
 // Consecutive-day bonus — a proven, simple retention mechanic distinct from
