@@ -99,6 +99,7 @@ canvas.height = LOGICAL_H;
 // fixed logical space regardless, so nothing needs to be rescaled/clamped
 // per-entity here. Wrapped in try/catch regardless (belt-and-suspenders
 // safety for a handler that can fire before other module state settles).
+let resizeCanvasRetries = 0;
 function resizeCanvas() {
   try {
     // A freshly-loaded page can momentarily report 0x0 before its first
@@ -106,12 +107,21 @@ function resizeCanvas() {
     // skip committing a broken size rather than leaving the canvas stuck
     // permanently invisible, since unlike COLS this isn't a one-time value:
     // there's no later 'resize' event to self-correct a viewport that never
-    // actually changes size again after this bad initial read.
+    // actually changes size again after this bad initial read. Retries via
+    // setTimeout, not requestAnimationFrame — rAF can be paused entirely
+    // for a backgrounded/non-visible document (confirmed while testing: a
+    // background tab never re-fired it, leaving the canvas stuck), whereas
+    // a timer still eventually runs. Capped so a genuinely broken
+    // environment can't retry forever.
     const w = window.innerWidth;
     const h = window.innerHeight;
     if (w > 0 && h > 0) {
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
+      resizeCanvasRetries = 0;
+    } else if (resizeCanvasRetries < 30) {
+      resizeCanvasRetries++;
+      setTimeout(resizeCanvas, 50);
     }
   } catch (e) {
     // never let a resize/orientation event throw and break the page
@@ -120,7 +130,6 @@ function resizeCanvas() {
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', resizeCanvas);
 resizeCanvas();
-requestAnimationFrame(resizeCanvas); // catches a viewport that wasn't laid out yet on the synchronous call above
 
 // ---------- Audio: procedural sound effects (Web Audio API, no files) ----------
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -317,7 +326,6 @@ const GOLD = 3;
 const CHEST = 4;
 const RELIC = 5;
 const GAS = 6;
-const TOMBSTONE = 7; // Fallen Miners — decorative, no collision damage, triggers a toast by depth
 
 // ---------- Biomes (depth-based zones) ----------
 // Row index === depth in meters (BLOCK = 40px = 1m), so a row's biome is
@@ -380,7 +388,6 @@ const RELIC_MIN_DEPTH = 1500; // meters
 const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare
 const CHEST_CHANCE = 0.012;   // rare, but findable
 const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing enough
-const TOMBSTONE_CHANCE = 0.008; // Fallen Miners — Dirt/Ice only, purely cosmetic/social
 
 // First 100m (rows 0-99) never spawns Stone or Gas — a hazard-free onboarding
 // stretch. The density ramp (stoneThreshold/goldChance) restarts its own
@@ -577,7 +584,6 @@ const world = {
   rows: [],       // rows[rowIndex] = array of COLS block types
   lastSafeX: Math.floor(COLS / 2),
   nextRowToGenerate: 0,
-  tombstoneRows: [], // ascending queue of row indices holding a Tombstone, consumed by updateTombstones()
 };
 
 const NOISE_SCALE_X = 0.35;
@@ -634,12 +640,11 @@ function generateRow(rowIndex) {
   row[safeX] = Math.random() < safeGoldChance(rampDepthPixels) ? GOLD : DIRT;
   world.lastSafeX = safeX;
 
-  // Chest / Relic / Gas / Tombstone spawns — only ever replace plain DIRT so
-  // they never swallow a Stone or Gold cell (or each other). Gas is a hazard
-  // and stays out of the safe zone; Chest/Relic/Tombstone are all benign, so
-  // they're allowed anywhere their own gates permit.
+  // Chest / Relic / Gas spawns — only ever replace plain DIRT so they never
+  // swallow a Stone or Gold cell (or each other). Gas is a hazard and stays
+  // out of the safe zone; Chest/Relic are benign, so they're allowed
+  // anywhere their own gates permit.
   const rowBiomeForSpawns = getBiome(rowIndex);
-  let tombstoneAddedThisRow = false;
   for (let x = 0; x < COLS; x++) {
     if (row[x] !== DIRT) continue;
     if (
@@ -652,12 +657,8 @@ function generateRow(rowIndex) {
       row[x] = CHEST;
     } else if (!inSafeZone && rowBiomeForSpawns.name !== 'Magma' && Math.random() < GAS_CHANCE) {
       row[x] = GAS;
-    } else if (rowBiomeForSpawns.name !== 'Magma' && Math.random() < TOMBSTONE_CHANCE) {
-      row[x] = TOMBSTONE;
-      tombstoneAddedThisRow = true;
     }
   }
-  if (tombstoneAddedThisRow) world.tombstoneRows.push(rowIndex);
 
   world.rows[rowIndex] = row;
 }
@@ -1760,7 +1761,6 @@ function startGame() {
   world.rows = [];
   world.lastSafeX = Math.floor(COLS / 2);
   world.nextRowToGenerate = 0;
-  world.tombstoneRows = [];
 
   // Class hitbox is locked in for the run, so switching loadouts mid-run
   // (not currently possible — Loadout only opens from the start menu) can
@@ -1947,11 +1947,6 @@ function updateCollisions(dt) {
     } else if (block === RELIC) {
       setBlock(row, col, EMPTY);
       collectRelic(cellCenterX, cellCenterY);
-    } else if (block === TOMBSTONE) {
-      // purely decorative — no damage, no reward; the row-crossing toast
-      // (updateTombstones) is the real interaction, this is just tidy-up
-      setBlock(row, col, EMPTY);
-      spawnParticles(cellCenterX, cellCenterY, '#9e9e9e', 4);
     } else if (block === GAS) {
       if (state.overdriveActive) {
         // Overdrive pulverizes it instead of taking a hit — no damage, bonus gold
@@ -2078,15 +2073,6 @@ function updateHealth(dt) {
   }
 }
 
-function updateTombstones() {
-  const depthNow = currentDepthMeters();
-  while (world.tombstoneRows.length > 0 && world.tombstoneRows[0] <= depthNow) {
-    world.tombstoneRows.shift();
-    const guestId = Math.floor(Math.random() * 9999);
-    queueToast('Guest' + guestId + ' died here!');
-  }
-}
-
 function update(dt) {
   tickInterstitialTimer(); // wall-clock based; keeps ticking regardless of run state
   updateParticles(dt);
@@ -2100,7 +2086,6 @@ function update(dt) {
   updateNearMissCombo();
   updateMagnet(dt);
   updateOverdrive(dt);
-  updateTombstones();
   updateContractProgress();
   updateHealth(dt);
 }
@@ -2122,16 +2107,111 @@ function updateContractProgress() {
 }
 
 // ---------- Render ----------
-// DIRT/STONE take their color from the row's biome; GOLD stays fixed so it
-// always reads as a pickup regardless of zone. CHEST/RELIC are drawn with
-// their own dedicated routines below instead of a flat fill.
-function blockColor(type, biome) {
-  switch (type) {
-    case DIRT: return biome.dirtColor;
-    case STONE: return biome.stoneColor;
-    case GOLD: return '#ffd700';
-    default: return null;
+function shadeColor(hex, amount) {
+  // amount: -1..1, negative = darker, positive = lighter
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const adj = (c) => Math.max(0, Math.min(255, Math.round(amount > 0 ? c + (255 - c) * amount : c + c * amount)));
+  return `rgb(${adj(r)}, ${adj(g)}, ${adj(b)})`;
+}
+
+// DIRT/STONE textures are pre-rendered once per (block type, biome, variant)
+// into a small offscreen canvas — gradient, chunky bevel, and a sprinkle of
+// noise speckle baked in — then reused every frame via a single drawImage()
+// per cell, the same per-frame cost as the old flat fillRect had. Two
+// variants per combination, picked per-cell by a cheap deterministic hash
+// of its row/col, break up what would otherwise be an obviously-repeating
+// tile pattern without any extra runtime cost.
+const TILE_VARIANTS_PER_TYPE = 2;
+const tileTextureCache = {};
+
+function createTileTexture(baseColorHex, seed) {
+  const tex = document.createElement('canvas');
+  tex.width = BLOCK;
+  tex.height = BLOCK;
+  const tctx = tex.getContext('2d');
+
+  tctx.fillStyle = baseColorHex;
+  tctx.fillRect(0, 0, BLOCK, BLOCK);
+
+  const grad = tctx.createLinearGradient(0, 0, BLOCK, BLOCK);
+  grad.addColorStop(0, 'rgba(255,255,255,0.12)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.18)');
+  tctx.fillStyle = grad;
+  tctx.fillRect(0, 0, BLOCK, BLOCK);
+
+  // Deterministic per-seed noise speckle (stable across regenerations —
+  // same seed always draws the same texture, so it's safe to cache).
+  let s = seed;
+  const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  const speckleCount = 5 + Math.floor(rand() * 4);
+  for (let i = 0; i < speckleCount; i++) {
+    const x = rand() * BLOCK;
+    const y = rand() * BLOCK;
+    const rad = 1 + rand() * 1.5;
+    tctx.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.12)';
+    tctx.beginPath();
+    tctx.arc(x, y, rad, 0, Math.PI * 2);
+    tctx.fill();
   }
+
+  // chunky bevel — light top/left edge, dark bottom/right edge
+  tctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  tctx.lineWidth = 2;
+  tctx.beginPath();
+  tctx.moveTo(1, BLOCK - 1);
+  tctx.lineTo(1, 1);
+  tctx.lineTo(BLOCK - 1, 1);
+  tctx.stroke();
+
+  tctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  tctx.beginPath();
+  tctx.moveTo(BLOCK - 1, 1);
+  tctx.lineTo(BLOCK - 1, BLOCK - 1);
+  tctx.lineTo(1, BLOCK - 1);
+  tctx.stroke();
+
+  tctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  tctx.lineWidth = 1;
+  tctx.strokeRect(0.5, 0.5, BLOCK - 1, BLOCK - 1);
+
+  return tex;
+}
+
+function getTileTexture(type, biome, variantIndex) {
+  const baseColor = type === DIRT ? biome.dirtColor : biome.stoneColor;
+  const key = type + '_' + biome.name + '_' + variantIndex;
+  if (!tileTextureCache[key]) {
+    const seed = (type === DIRT ? 1000 : 2000) + biome.name.length * 97 + variantIndex * 613;
+    tileTextureCache[key] = createTileTexture(baseColor, seed);
+  }
+  return tileTextureCache[key];
+}
+
+// Gold stays a live per-cell draw (not pre-rendered) since it's rare enough
+// that the extra per-cell gradient cost is negligible, and the pulsing
+// shine needs performance.now() at draw time anyway.
+function drawGoldBlock(screenX, screenY, nowMs) {
+  const cx = screenX + BLOCK / 2;
+  const cy = screenY + BLOCK / 2;
+  const pulse = 0.5 + 0.5 * Math.sin(nowMs / 300);
+
+  const grad = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, BLOCK * 0.65);
+  grad.addColorStop(0, '#fff9c4');
+  grad.addColorStop(0.45, '#ffd700');
+  grad.addColorStop(1, '#b8860b');
+  ctx.fillStyle = grad;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
+
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + pulse * 0.3})`;
+  ctx.beginPath();
+  ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawChestBlock(screenX, screenY) {
@@ -2202,29 +2282,6 @@ function drawGasBlock(screenX, screenY) {
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
 }
 
-// Fallen Miners — a small gray cross/marker. Purely decorative; the real
-// interaction (the toast) fires by depth in updateTombstones(), not contact.
-function drawTombstoneBlock(screenX, screenY) {
-  ctx.fillStyle = '#3a3a3a';
-  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
-
-  const cx = screenX + BLOCK / 2;
-  const cy = screenY + BLOCK / 2;
-  ctx.strokeStyle = '#c9c9c9';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - BLOCK * 0.28);
-  ctx.lineTo(cx, cy + BLOCK * 0.28);
-  ctx.moveTo(cx - BLOCK * 0.2, cy - BLOCK * 0.08);
-  ctx.lineTo(cx + BLOCK * 0.2, cy - BLOCK * 0.08);
-  ctx.stroke();
-
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
-}
-
 function render() {
   ctx.clearRect(0, 0, LOGICAL_W, LOGICAL_H);
 
@@ -2235,9 +2292,17 @@ function render() {
     ctx.translate(dx, dy);
   }
 
-  // sky/background — tinted to the drill's current biome, visible in tunnels
+  // sky/background — tinted to the drill's current biome, visible in tunnels.
+  // A subtle radial vignette instead of a flat fill — one gradient per
+  // frame, cheap, but reads much less flat than a single solid color.
   const currentBiome = getBiome(currentDepthMeters());
-  ctx.fillStyle = currentBiome.bgColor;
+  const bgGrad = ctx.createRadialGradient(
+    LOGICAL_W / 2, LOGICAL_H * 0.3, 0,
+    LOGICAL_W / 2, LOGICAL_H * 0.3, LOGICAL_H
+  );
+  bgGrad.addColorStop(0, shadeColor(currentBiome.bgColor, 0.15));
+  bgGrad.addColorStop(1, shadeColor(currentBiome.bgColor, -0.2));
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
   // camera: keep drill at ~35% down the screen
@@ -2269,24 +2334,13 @@ function render() {
         drawGasBlock(screenX, screenY);
         continue;
       }
-      if (type === TOMBSTONE) {
-        drawTombstoneBlock(screenX, screenY);
+      if (type === GOLD) {
+        drawGoldBlock(screenX, screenY, performance.now());
         continue;
       }
-
-      const color = blockColor(type, rowBiome);
-      if (!color) continue;
-      ctx.fillStyle = color;
-      ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
-      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
-
-      if (type === GOLD) {
-        ctx.fillStyle = 'rgba(255,255,255,0.4)';
-        ctx.beginPath();
-        ctx.arc(screenX + BLOCK / 2, screenY + BLOCK / 2, 6, 0, Math.PI * 2);
-        ctx.fill();
+      if (type === DIRT || type === STONE) {
+        const variantIndex = (r * 31 + c * 17) % TILE_VARIANTS_PER_TYPE;
+        ctx.drawImage(getTileTexture(type, rowBiome, variantIndex), screenX, screenY);
       }
     }
   }
@@ -2306,7 +2360,14 @@ function render() {
     ctx.shadowBlur = appearance.glowBlur;
   }
 
-  ctx.fillStyle = flashing ? '#ff5252' : appearance.body;
+  if (flashing) {
+    ctx.fillStyle = '#ff5252';
+  } else {
+    const bodyGrad = ctx.createLinearGradient(drillScreenX, drillScreenY, drillScreenX + drill.width, drillScreenY + drill.height);
+    bodyGrad.addColorStop(0, shadeColor(appearance.body, 0.35));
+    bodyGrad.addColorStop(1, appearance.body);
+    ctx.fillStyle = bodyGrad;
+  }
   ctx.fillRect(drillScreenX, drillScreenY, drill.width, drill.height);
   // drill nose (triangle pointing down)
   ctx.fillStyle = flashing ? '#ff8a80' : appearance.nose;
