@@ -232,6 +232,17 @@ if (audioCtx) {
   window.addEventListener('keydown', unlockAudio, { once: true });
 }
 
+// Chrome logs a console error (which fails the Playables compliance check)
+// for navigator.vibrate() calls before any real user gesture — and unlike
+// the AudioContext case above, that happens on the FIRST call, not just
+// once early on: a cold-load toast (the login streak reward, which can fire
+// before Start Drilling is ever tapped) hits this every time, not only on
+// first launch. Tracked separately from audioCtx's own unlock above since
+// this needs to gate vibrateHaptic() regardless of whether Web Audio exists.
+let hasUserGestured = false;
+window.addEventListener('pointerdown', () => { hasUserGestured = true; }, { once: true });
+window.addEventListener('keydown', () => { hasUserGestured = true; }, { once: true });
+
 // Synthesizes a short one-shot sound with an OscillatorNode + GainNode —
 // no audio files. The gain envelope always ramps up from near-silence and
 // back down to near-silence so starting/stopping the oscillator never pops.
@@ -706,6 +717,7 @@ async function scheduleContractRefreshNotification(generatedAt) {
         title: 'New Daily Contracts!',
         body: 'Fresh contracts are ready — come earn some bonus Gold.',
         schedule: { at: new Date(generatedAt + CONTRACT_REFRESH_MS) },
+        extra: { deepLink: 'contracts' },
       }],
     });
   } catch (e) {
@@ -723,6 +735,13 @@ async function scheduleReturnNotifications() {
   try {
     if (!(await ensureNotificationPermission(plugin))) return;
     const now = Date.now();
+    // A streak worth protecting is a sharper, more personal hook than the
+    // generic message — "lead with a concrete benefit" — and costs nothing
+    // extra to compute since state.loginStreak is already known synchronously
+    // right here, at the moment the player is leaving.
+    const winbackBody = state.loginStreak >= 2
+      ? `Your ${state.loginStreak}-day streak is waiting — come back before it resets!`
+      : 'Gold is waiting, your Season Pass is still climbing, and there are fresh contracts to complete.';
     await plugin.schedule({
       notifications: [
         {
@@ -730,12 +749,14 @@ async function scheduleReturnNotifications() {
           title: 'Your rig is still drilling!',
           body: "Gold has been piling up while you're away — come collect it.",
           schedule: { at: new Date(now + IDLE_GOLD_NOTIFICATION_DELAY_MS) },
+          extra: { deepLink: 'welcome_back' },
         },
         {
           id: WINBACK_NOTIFICATION_ID,
           title: 'The mine misses you',
-          body: 'Gold is waiting, your Season Pass is still climbing, and there are fresh contracts to complete.',
+          body: winbackBody,
           schedule: { at: new Date(now + WINBACK_NOTIFICATION_DELAY_MS) },
+          extra: { deepLink: 'pass' },
         },
       ],
     });
@@ -755,6 +776,25 @@ async function cancelReturnNotifications() {
   } catch (e) {
     // best-effort — a failed cancel just means a possibly-stale notification stays scheduled, never fatal
   }
+}
+
+// Routes a tapped notification straight to its payoff instead of just
+// launching the app to whatever screen it always opens to — closes the loop
+// between "notification promises a reward" and "player actually sees it"
+// with one extra screen nav instead of several taps.
+//
+// 'welcome_back' needs no action: checkOfflineEarnings() already shows that
+// overlay automatically on every cold load if idle Gold was earned, deep
+// link or not. If it IS showing right now, skip opening Contracts/Pass on
+// top of it — both are full-screen .overlay divs at the same z-index, and
+// whichever opens second would visually bury the Collect button behind it.
+// Missing one screen nav on that particular cold start is a fine trade for
+// never risking a stuck, unreachable Welcome Back overlay.
+function applyDeepLink(deepLink) {
+  if (!deepLink) return;
+  if (!welcomeBackScreen.classList.contains('hidden')) return;
+  if (deepLink === 'contracts') openContractsScreen();
+  else if (deepLink === 'pass') openPassScreen();
 }
 
 function saveDailyContracts() {
@@ -1003,6 +1043,7 @@ const state = {
   passClaimedTiers: loadPassClaimedTiers(), // array of claimed Pass tier numbers, persisted
   passSeasonStart: loadOrInitPassSeasonStart(), // ms epoch, persisted
   passSeasonNumber: parseInt(storageGet('ec_passSeasonNumber') || '1', 10),
+  loginStreak: parseInt(storageGet('ec_loginStreak') || '0', 10), // consecutive-day count, persisted
   // Reserved for the future paid track — always false/empty until a real IAP
   // purchase flow exists to set them (see unlockPassPremium()). Persisted
   // now so the shape is already correct; nothing sets these yet.
@@ -1598,7 +1639,7 @@ function getDrillAppearance() {
 // Vibration API is Android-only (iOS Safari has never implemented it); the
 // feature check makes this a silent no-op everywhere else.
 function vibrateHaptic(durationMs = 10) {
-  if (typeof navigator.vibrate === 'function') {
+  if (hasUserGestured && typeof navigator.vibrate === 'function') {
     navigator.vibrate(durationMs);
   }
 }
@@ -3362,6 +3403,22 @@ function initPlayablesSDK() {
     } catch (e) {
       // App plugin wiring must never block the game from running
     }
+    try {
+      const notifPlugin = getLocalNotificationsPlugin();
+      if (notifPlugin) {
+        // Fires both when a notification is tapped while the app is already
+        // running AND when tapping it is what launched the app in the first
+        // place (Capacitor replays the "launch notification" to a listener
+        // registered here, even though the tap happened before this line
+        // ran) — one listener correctly covers both cases.
+        notifPlugin.addListener('localNotificationActionPerformed', (action) => {
+          const deepLink = action && action.notification && action.notification.extra && action.notification.extra.deepLink;
+          applyDeepLink(deepLink);
+        });
+      }
+    } catch (e) {
+      // notification tap wiring must never block the game from running
+    }
     initAdMob(); // fire-and-forget — handles its own errors, never blocks the game from running
     return;
   }
@@ -3492,6 +3549,49 @@ document.getElementById('welcome-back-btn').addEventListener('click', () => {
   welcomeBackScreen.classList.add('hidden');
 });
 
+// ---------- Login streak ----------
+// Consecutive-day bonus — a proven, simple retention mechanic distinct from
+// the Season Pass (long-horizon, requires actual play) and offline earnings
+// (rewards absence, not return): this specifically rewards SHOWING UP. Gold
+// scales per day up to a cap (so the economy doesn't inflate forever) but
+// the visible streak count keeps climbing uncapped, since the number itself
+// — not just the Gold — is the motivating part ("Day 15!" feels different
+// from "Day 7 again"). Announced via the existing toast system rather than
+// a new overlay; non-blocking, doesn't compete with the Welcome Back screen
+// when both trigger on the same cold load.
+const LOGIN_STREAK_GOLD_BASE = 10;
+const LOGIN_STREAK_GOLD_STEP = 8;
+const LOGIN_STREAK_MAX_REWARD_DAY = 7;
+
+function todayDateString(date) {
+  const d = date || new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function loginStreakRewardForDay(day) {
+  const cappedDay = Math.min(day, LOGIN_STREAK_MAX_REWARD_DAY);
+  return LOGIN_STREAK_GOLD_BASE + (cappedDay - 1) * LOGIN_STREAK_GOLD_STEP;
+}
+
+function checkLoginStreak() {
+  const today = todayDateString();
+  const lastLoginDate = storageGet('ec_lastLoginDate');
+  if (lastLoginDate === today) return; // already counted today — a page refresh must never double-award
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const wasYesterday = lastLoginDate === todayDateString(yesterday);
+
+  const streak = lastLoginDate ? (wasYesterday ? state.loginStreak + 1 : 1) : 1;
+  state.loginStreak = streak;
+  storageSet('ec_lastLoginDate', today);
+  storageSet('ec_loginStreak', String(streak));
+
+  const reward = loginStreakRewardForDay(streak);
+  syncBankedGold(reward);
+  queueToast(`🔥 Day ${streak} Streak! +${reward} Gold`);
+}
+
 // Keeps the "last played" timestamp fresh while the tab is open/backgrounded,
 // so the next visit's offline window is measured from the real last moment
 // played, not just from page load. Deliberately not the raw browser page
@@ -3507,6 +3607,7 @@ ensureRowsGenerated(20);
 render();
 
 checkOfflineEarnings();
+checkLoginStreak();
 
 initPlayablesSDK();
 notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above
