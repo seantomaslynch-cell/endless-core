@@ -1093,6 +1093,7 @@ function handleSdkPause() {
     rafId = null;
   }
   muteAudio();
+  storageSet('ec_lastPlayedTimestamp', String(Date.now())); // platform pause = player left; freshen the offline-mining clock
 }
 
 function handleSdkResume() {
@@ -2418,12 +2419,12 @@ document.getElementById('welcome-back-btn').addEventListener('click', () => {
 
 // Keeps the "last played" timestamp fresh while the tab is open/backgrounded,
 // so the next visit's offline window is measured from the real last moment
-// played, not just from page load.
+// played, not just from page load. Deliberately not the raw browser page
+// visibility API — the Playables spec forbids reading that directly, since
+// the platform's own pause/resume hook (see handleSdkPause below) is the
+// sanctioned signal for "player left".
 setInterval(() => storageSet('ec_lastPlayedTimestamp', String(Date.now())), OFFLINE_HEARTBEAT_MS);
 window.addEventListener('beforeunload', () => storageSet('ec_lastPlayedTimestamp', String(Date.now())));
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) storageSet('ec_lastPlayedTimestamp', String(Date.now()));
-});
 
 // Initial idle render (so canvas isn't blank behind the start screen)
 startHighscoreEl.textContent = 'High Score: ' + state.highScore;
