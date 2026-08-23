@@ -64,6 +64,9 @@ workflows:
       vars:
         XCODE_PROJECT: "ios/App/App.xcodeproj"
         XCODE_SCHEME: "App"
+        # The app's numeric Apple ID (NOT the bundle identifier) — App Store
+        # Connect > your app > General > App Information > Apple ID.
+        APP_STORE_APPLE_ID: "CHANGE_ME_numeric_apple_id"
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.zenzrack.endlesscore
@@ -72,6 +75,17 @@ workflows:
         script: npm ci
       - name: Sync web assets into the iOS project
         script: npm run sync:ios
+      - name: Increment build number
+        script: |
+          # Every TestFlight/App Store upload needs a build number strictly
+          # higher than the last one Apple already has for this app, or the
+          # upload is rejected outright. agvtool needs VERSIONING_SYSTEM =
+          # apple-generic on the App target (already set in
+          # ios/App/App.xcodeproj/project.pbxproj) to have anywhere to write
+          # the new value.
+          cd "$CM_BUILD_DIR/ios/App"
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
       - name: Build ipa for distribution
