@@ -633,17 +633,57 @@ function generateDailyContracts() {
 // Loads today's contracts from localStorage, generating (and persisting) a
 // fresh set if none exist yet or the last set is more than 24h old.
 function loadOrGenerateDailyContracts() {
+  let result = null;
   try {
     const saved = JSON.parse(storageGet('ec_dailyContracts') || 'null');
     if (saved && Array.isArray(saved.goals) && Date.now() - saved.generatedAt < CONTRACT_REFRESH_MS) {
-      return saved;
+      result = saved;
     }
   } catch {
     // fall through to a fresh set
   }
-  const fresh = { generatedAt: Date.now(), goals: generateDailyContracts() };
-  storageSet('ec_dailyContracts', JSON.stringify(fresh));
-  return fresh;
+  if (!result) {
+    result = { generatedAt: Date.now(), goals: generateDailyContracts() };
+    storageSet('ec_dailyContracts', JSON.stringify(result));
+  }
+  scheduleContractRefreshNotification(result.generatedAt); // fire-and-forget, native-only, never blocks init
+  return result;
+}
+
+// Local (device-scheduled, no server/APNs needed) reminder for when today's
+// contracts refresh — the same retention lever mobile games use for "come
+// back, something's ready." Re-scheduling with the SAME fixed id on every
+// app open is deliberately idempotent: it always targets generatedAt + 24h
+// for whatever contract set is currently active, and replaces rather than
+// stacks, so opening the app 10 times in a day never produces 10 pending
+// notifications.
+const CONTRACT_REFRESH_NOTIFICATION_ID = 1001;
+
+async function scheduleContractRefreshNotification(generatedAt) {
+  if (!isNativeMobile) return; // no local-notifications concept on web/Playables
+  const plugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+  if (!plugin) return;
+
+  try {
+    let perm = await plugin.checkPermissions();
+    if (perm.display !== 'granted') {
+      perm = await plugin.requestPermissions();
+    }
+    if (perm.display !== 'granted') return; // declined — respect it, don't ask again this call
+
+    await plugin.cancel({ notifications: [{ id: CONTRACT_REFRESH_NOTIFICATION_ID }] });
+    await plugin.schedule({
+      notifications: [{
+        id: CONTRACT_REFRESH_NOTIFICATION_ID,
+        title: 'New Daily Contracts!',
+        body: 'Fresh contracts are ready — come earn some bonus Gold.',
+        schedule: { at: new Date(generatedAt + CONTRACT_REFRESH_MS) },
+      }],
+    });
+  } catch (e) {
+    // best-effort only — a failed/declined notification never blocks gameplay
+    console.log('LocalNotifications: schedule failed', e);
+  }
 }
 
 function saveDailyContracts() {
