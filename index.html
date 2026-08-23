@@ -49,6 +49,15 @@
 
   <!-- Start Screen -->
   <div id="start-screen" class="overlay">
+    <div id="ember-field" aria-hidden="true">
+      <span class="ember"></span><span class="ember"></span><span class="ember"></span>
+      <span class="ember"></span><span class="ember"></span><span class="ember"></span>
+      <span class="ember"></span><span class="ember"></span>
+    </div>
+    <div id="start-hud">
+      <div id="start-gold-pill">🪙 <span id="start-gold-amount">0</span></div>
+      <div id="start-streak-pill" class="hidden">🔥 <span id="start-streak-amount">0</span> Day Streak</div>
+    </div>
     <div class="menu-title">
       <div class="menu-title-eyebrow">Endless Core</div>
       <h1>MINING RUSH</h1>
@@ -59,7 +68,7 @@
     <p id="start-highscore">High Score: 0</p>
     <button id="start-btn" class="menu-primary-btn">Start Drilling</button>
     <div class="menu-secondary-grid">
-      <button id="start-pass-btn" class="menu-secondary-btn">🏆 Season Pass</button>
+      <button id="start-pass-btn" class="menu-secondary-btn">🏆 Season Pass<span id="pass-claim-badge" class="claim-badge hidden"></span></button>
       <button id="start-upgrades-btn" class="menu-secondary-btn">🔧 Upgrades</button>
       <button id="start-museum-btn" class="menu-secondary-btn">🏺 Museum</button>
       <button id="start-loadout-btn" class="menu-secondary-btn">🛠️ Loadout</button>

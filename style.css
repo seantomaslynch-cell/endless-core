@@ -324,6 +324,88 @@ body.paused #gameCanvas {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  /* Subtle background drift instead of a dead-still screenshot — small
+     enough it reads as "alive," not distracting from the buttons on top.
+     background-position (not transform) deliberately, so it only moves the
+     paint, never the title/buttons stacked as normal children on top of it. */
+  animation: startBgDrift 22s ease-in-out infinite;
+}
+
+@keyframes startBgDrift {
+  0%, 100% { background-position: 50% 50%; }
+  50% { background-position: 53% 46%; }
+}
+
+/* Rising ember particles — cheap, pure-CSS "living scene" cue (Clash Royale-
+   style menus lean hard on ambient motion; this was the one thing our menu
+   had none of). pointer-events:none so they can never intercept a tap even
+   if a particle happens to drift over a button. */
+#ember-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ember {
+  position: absolute;
+  bottom: -10px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffe082 0%, #ffa000 60%, rgba(255, 160, 0, 0) 100%);
+  opacity: 0;
+  animation: emberRise 9s ease-in infinite;
+}
+
+.ember:nth-child(1) { left: 10%; animation-delay: 0s; animation-duration: 8s; }
+.ember:nth-child(2) { left: 22%; animation-delay: 1.5s; animation-duration: 10s; }
+.ember:nth-child(3) { left: 35%; animation-delay: 3s; animation-duration: 7s; }
+.ember:nth-child(4) { left: 48%; animation-delay: 0.7s; animation-duration: 11s; }
+.ember:nth-child(5) { left: 61%; animation-delay: 2.2s; animation-duration: 9s; }
+.ember:nth-child(6) { left: 74%; animation-delay: 4s; animation-duration: 8.5s; }
+.ember:nth-child(7) { left: 85%; animation-delay: 1s; animation-duration: 10.5s; }
+.ember:nth-child(8) { left: 93%; animation-delay: 3.5s; animation-duration: 7.5s; }
+
+@keyframes emberRise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: 0.8; }
+  90% { opacity: 0.3; }
+  100% { transform: translate(12px, -620px); opacity: 0; }
+}
+
+/* Persistent Gold (+ streak, when active) readout — top-left, matching the
+   in-game HUD's own positioning so the two feel like the same system rather
+   than menu vs. gameplay having unrelated conventions. Previously Gold was
+   invisible on this screen entirely; a player had to open a sub-screen just
+   to see what they had. */
+#start-hud {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+#start-gold-pill, #start-streak-pill {
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffd700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  width: fit-content;
+}
+
+#start-streak-pill {
+  border-color: rgba(255, 111, 0, 0.5);
+  color: #ffb74d;
 }
 
 .overlay p {
@@ -421,6 +503,7 @@ body.paused #gameCanvas {
    unifying accent. */
 .overlay .menu-secondary-btn {
   --btn-grad: linear-gradient(135deg, #9c8163, #5c4830 55%, #3a2c1c);
+  position: relative; /* anchors .claim-badge */
   min-width: 0;
   padding: 13px 10px;
   font-size: 13px;
@@ -437,6 +520,28 @@ body.paused #gameCanvas {
     inset 0 1px 0 rgba(255, 255, 255, 0.45),
     inset 0 -2px 4px rgba(0, 0, 0, 0.3);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* "Something's here" badge — the Season Pass button gets a pulsing dot when
+   a tier is claimable and unclaimed, the same "come back and see" cue
+   Clash Royale/Brawl Stars use on their chest/shop icons instead of making
+   players discover rewards by chance. */
+.claim-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff8a65, #e53935 70%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 6px rgba(229, 57, 53, 0.7);
+  animation: badgePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
 }
 
 .overlay .menu-secondary-btn:active {

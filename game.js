@@ -1775,6 +1775,10 @@ const finalScoreEl = document.getElementById('final-score');
 const contractBonusEl = document.getElementById('final-contract-bonus');
 const bankedGoldEl = document.getElementById('banked-gold');
 const startHighscoreEl = document.getElementById('start-highscore');
+const startGoldAmountEl = document.getElementById('start-gold-amount');
+const startStreakPillEl = document.getElementById('start-streak-pill');
+const startStreakAmountEl = document.getElementById('start-streak-amount');
+const passClaimBadgeEl = document.getElementById('pass-claim-badge');
 const highscoreDisplayEl = document.getElementById('highscore-display');
 const newHighscoreBadge = document.getElementById('new-highscore-badge');
 const fuelUpgradeDescEl = document.getElementById('fuel-upgrade-desc');
@@ -2023,6 +2027,25 @@ function closeOverlay(screenEl) {
   screenEl.classList.add('hidden');
   if (overlayReturnScreen) overlayReturnScreen.classList.remove('hidden');
   overlayReturnScreen = null;
+  updateStartScreenHud(); // covers every path back to the start screen in one place
+}
+
+// Refreshes the main menu's persistent Gold/streak readout and the Season
+// Pass "something's claimable" badge — cheap enough to call on every return
+// to the start screen rather than tracking exactly what might have changed.
+function updateStartScreenHud() {
+  startGoldAmountEl.textContent = state.bankedGold;
+
+  if (state.loginStreak >= 2) {
+    startStreakPillEl.classList.remove('hidden');
+    startStreakAmountEl.textContent = state.loginStreak;
+  } else {
+    startStreakPillEl.classList.add('hidden');
+  }
+
+  const currentTier = getPassTierForXp(state.passXp);
+  const hasClaimable = PASS_REWARDS.some((r) => r.tier <= currentTier && !state.passClaimedTiers.includes(r.tier));
+  passClaimBadgeEl.classList.toggle('hidden', !hasClaimable);
 }
 
 document.getElementById('upgrades-btn').addEventListener('click', openUpgradesScreen);
@@ -2195,6 +2218,7 @@ function goToMainMenu() {
   pauseBtn.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
   startScreen.classList.remove('hidden');
+  updateStartScreenHud();
 }
 document.getElementById('manual-pause-menu-btn').addEventListener('click', goToMainMenu);
 document.getElementById('gameover-menu-btn').addEventListener('click', goToMainMenu);
@@ -3547,6 +3571,7 @@ function checkOfflineEarnings() {
 
 document.getElementById('welcome-back-btn').addEventListener('click', () => {
   welcomeBackScreen.classList.add('hidden');
+  updateStartScreenHud(); // the Gold pill needs to reflect what was just collected
 });
 
 // ---------- Login streak ----------
@@ -3608,6 +3633,7 @@ render();
 
 checkOfflineEarnings();
 checkLoginStreak();
+updateStartScreenHud();
 
 initPlayablesSDK();
 notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above
