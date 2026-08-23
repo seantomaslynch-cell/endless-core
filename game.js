@@ -83,8 +83,20 @@ const computedCols = Math.round((initialAspect * LOGICAL_H) / BLOCK);
 const COLS = clamp(Number.isFinite(computedCols) ? computedCols : MIN_COLS, MIN_COLS, MAX_COLS);
 const LOGICAL_W = COLS * BLOCK;
 
-canvas.width = LOGICAL_W;
-canvas.height = LOGICAL_H;
+// The canvas's actual pixel buffer was fixed at the logical game resolution
+// (e.g. 360-1040 x 640) and then CSS-stretched to fill the real screen —
+// on any Retina/high-DPI device (every current iPhone) that means the
+// browser is upscaling a low-res buffer, which reads as soft/blurry
+// ("doesn't look HD"). Rendering at devicePixelRatio instead — while every
+// draw call still uses the same logical coordinates via ctx.scale below —
+// fixes that without touching a single line of game/render logic. Capped
+// at 3x: backing-buffer cost scales with DPR², and there's no visible
+// sharpness gain past 3x on a canvas this size, just wasted fill-rate on
+// displays that report a higher ratio than they have the GPU headroom for.
+const DPR = Math.min(window.devicePixelRatio || 1, 3);
+canvas.width = LOGICAL_W * DPR;
+canvas.height = LOGICAL_H * DPR;
+ctx.scale(DPR, DPR);
 
 // The internal logical resolution (LOGICAL_W/H) is fixed once COLS is
 // chosen above — the CSS display size always stretches to exactly fill the
@@ -1570,6 +1582,27 @@ document.getElementById('manual-pause-resume-btn').addEventListener('click', () 
   rafId = requestAnimationFrame(loop);
 });
 
+// Reachable from the pause screen (mid-run) or the Game Over screen — both
+// were previously dead ends with no way back to the title screen short of
+// force-quitting the app, reported from a real device. pauseGameLoop() is
+// safe to call even if the loop is already stopped (Game Over already did).
+function goToMainMenu() {
+  pauseGameLoop();
+  manualPauseScreen.classList.add('hidden');
+  gameoverScreen.classList.add('hidden');
+  chestScreen.classList.add('hidden');
+  upgradesScreen.classList.add('hidden');
+  museumScreen.classList.add('hidden');
+  contractsScreen.classList.add('hidden');
+  loadoutScreen.classList.add('hidden');
+  trailsScreen.classList.add('hidden');
+  pauseBtn.classList.add('hidden');
+  startHighscoreEl.textContent = 'High Score: ' + state.highScore;
+  startScreen.classList.remove('hidden');
+}
+document.getElementById('manual-pause-menu-btn').addEventListener('click', goToMainMenu);
+document.getElementById('gameover-menu-btn').addEventListener('click', goToMainMenu);
+
 // ---------- The Artifact Museum overlay ----------
 const museumCountEl = document.getElementById('museum-count');
 const relicGridEl = document.getElementById('relic-grid');
@@ -2413,9 +2446,23 @@ function render() {
   const flashing = !state.overdriveActive && drill.invulnTimer > 0 && Math.floor(performance.now() / 80) % 2 === 0;
   const appearance = getDrillAppearance();
 
+  // Manual layered-alpha glow instead of ctx.shadowBlur — shadowBlur is a
+  // well-documented severe performance cost on mobile Safari/WKWebView, and
+  // this runs on the drill EVERY frame (not occasionally), which is the
+  // most likely real cause behind "touch and drag feels delayed" reported
+  // from an actual iPhone: the whole render loop dropping frames under
+  // shadow-compositing cost, not touch input itself arriving late. A couple
+  // of oversized, low-alpha flat rects behind the drill approximate the
+  // same soft glow at a fraction of the GPU cost.
   if (!flashing && appearance.glow) {
-    ctx.shadowColor = appearance.glow;
-    ctx.shadowBlur = appearance.glowBlur;
+    const pad = appearance.glowBlur * 0.6;
+    ctx.save();
+    ctx.fillStyle = appearance.glow;
+    ctx.globalAlpha = 0.30;
+    ctx.fillRect(drillScreenX - pad, drillScreenY - pad, drill.width + pad * 2, drill.height + pad * 2);
+    ctx.globalAlpha = 0.15;
+    ctx.fillRect(drillScreenX - pad * 2, drillScreenY - pad * 2, drill.width + pad * 4, drill.height + pad * 4);
+    ctx.restore();
   }
 
   if (flashing) {
@@ -2436,7 +2483,6 @@ function render() {
   ctx.closePath();
   ctx.fill();
 
-  ctx.shadowBlur = 0; // keep the glow off the crisp outline
   ctx.strokeStyle = flashing ? '#333' : appearance.border;
   ctx.lineWidth = appearance.borderWidth;
   ctx.strokeRect(drillScreenX, drillScreenY, drill.width, drill.height);
