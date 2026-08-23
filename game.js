@@ -1773,6 +1773,52 @@ async function initAdMob() {
   }
 }
 
+// ---------- Game Center ----------
+// Wraps a small custom native plugin (ios/App/App/GameCenterPlugin.swift),
+// not an npm package — the only maintained community Capacitor plugin for
+// Game Center peer-depends on Capacitor 5 (three majors behind this
+// project's Capacitor 8), so a first-party GameKit wrapper written directly
+// for this app was the lower-risk choice. See that file's own header
+// comment for the full reasoning.
+//
+// GAME_CENTER_LEADERBOARD_ID is a placeholder — inert until the app owner
+// (1) enables the Game Center capability for this App ID in the Apple
+// Developer portal, (2) creates a leaderboard with this exact ID in App
+// Store Connect (or updates this constant to match one already created),
+// and (3) adds the Game Center entitlement, most safely via Xcode's own
+// "+ Capability" button once step 1 is done. Every call here is best-effort
+// and silently no-ops without any of that — never blocks gameplay.
+const GAME_CENTER_LEADERBOARD_ID = 'endless_core_high_score';
+let gameCenterAuthAttempted = false;
+let gameCenterAuthenticated = false;
+
+function getGameCenterPlugin() {
+  return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GameCenter) || null;
+}
+
+async function authenticateGameCenter() {
+  if (!isNativeMobile) return;
+  const plugin = getGameCenterPlugin();
+  if (!plugin) return;
+  try {
+    const result = await plugin.authenticate();
+    gameCenterAuthenticated = !!result.authenticated;
+  } catch (e) {
+    gameCenterAuthenticated = false;
+  }
+}
+
+async function submitGameCenterScore(score) {
+  if (!isNativeMobile || !gameCenterAuthenticated) return;
+  const plugin = getGameCenterPlugin();
+  if (!plugin) return;
+  try {
+    await plugin.submitScore({ leaderboardID: GAME_CENTER_LEADERBOARD_ID, score: Math.round(score) });
+  } catch (e) {
+    // best-effort — a failed submission never blocks gameplay
+  }
+}
+
 // Named (not an anonymous click closure) so it's directly callable by a test
 // harness. Grants the revive ONLY when the ad resolves truthy.
 async function watchAdRevive() {
@@ -2444,6 +2490,10 @@ function startGame() {
     firstInterstitialShown = true;
     showInterstitialAd(); // fire-and-forget — never blocks the run from starting
   }
+  if (!gameCenterAuthAttempted) {
+    gameCenterAuthAttempted = true;
+    authenticateGameCenter(); // fire-and-forget — never blocks the run from starting
+  }
 
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
@@ -2464,6 +2514,7 @@ function endGame(causeOfDeath) {
 
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
   sdkSendScore(currentScore());
+  submitGameCenterScore(currentScore());
 
   if (interstitialArmed) {
     showInterstitialAd(); // the natural break the ~90s timer was waiting for
