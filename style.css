@@ -15,6 +15,19 @@ html, body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+/* SDK-driven platform pause (ytgame.system.onPause) — locks out every
+   button and the canvas itself so nothing behind the pause overlay is
+   reachable, regardless of z-index/overlap. isPaused guards in JS back
+   this up defense-in-depth for input handlers and the game loop. */
+body.paused button,
+body.paused #gameCanvas {
+  pointer-events: none !important;
+}
+
+#pause-overlay {
+  z-index: 40; /* above every other overlay (max otherwise used is 30) */
+}
+
 #game-container {
   position: relative;
   width: 100vw;

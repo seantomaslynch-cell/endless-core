@@ -32,13 +32,17 @@ function storageGet(key) {
 }
 
 function storageSet(key, value) {
-  if (!storageAvailable) { memoryStorage[key] = value; return; }
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    storageAvailable = false;
+  if (!storageAvailable) {
     memoryStorage[key] = value;
+  } else {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      storageAvailable = false;
+      memoryStorage[key] = value;
+    }
   }
+  sdkSaveIfAvailable(); // mirror to the platform save, best-effort (defined further down)
 }
 
 // ---------- Canvas setup ----------
@@ -53,21 +57,32 @@ const LOGICAL_H = 640;
 canvas.width = LOGICAL_W;
 canvas.height = LOGICAL_H;
 
+// The internal logical resolution (LOGICAL_W/H) never changes — only the
+// CSS display size is rescaled to fit, letterboxed to preserve aspect ratio.
+// Entity positions live entirely in that fixed logical space, so they can
+// never end up off-screen on rotation/resize; there's no per-entity rescale
+// or clamp step to do. Wrapped in try/catch regardless (belt-and-suspenders
+// safety for a handler that can fire before other module state settles).
 function resizeCanvas() {
-  const aspect = LOGICAL_W / LOGICAL_H;
-  let w = window.innerWidth;
-  let h = window.innerHeight;
-  if (w / h > aspect) {
-    h = h;
-    w = h * aspect;
-  } else {
-    w = w;
-    h = w / aspect;
+  try {
+    const aspect = LOGICAL_W / LOGICAL_H;
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    if (w / h > aspect) {
+      h = h;
+      w = h * aspect;
+    } else {
+      w = w;
+      h = w / aspect;
+    }
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  } catch (e) {
+    // never let a resize/orientation event throw and break the page
   }
-  canvas.style.width = w + 'px';
-  canvas.style.height = h + 'px';
 }
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
 resizeCanvas();
 
 // ---------- Audio: procedural sound effects (Web Audio API, no files) ----------
@@ -91,6 +106,17 @@ function unmuteAudio() {
   if (masterGain) masterGain.gain.value = 1;
 }
 
+// Separate from muteAudio()/unmuteAudio() above (which duck gain to 0 during
+// a rewarded ad): this reflects the YouTube platform's own mute state via
+// ytgame.system.isAudioEnabled()/onAudioEnabledChange. The spec requires
+// zero sound nodes while platform-muted, not just silent output, so
+// playSound() checks this and returns before creating any AudioNode at all.
+let sdkAudioEnabled = true;
+
+function applySdkAudioState(enabled) {
+  sdkAudioEnabled = !!enabled;
+}
+
 // Browsers start the context suspended until it's resumed inside a user
 // gesture handler. Listening once for the very first pointer/key press
 // (Start Drilling, a keyboard steer, etc.) covers the "resume after first
@@ -110,6 +136,7 @@ if (audioCtx) {
 // back down to near-silence so starting/stopping the oscillator never pops.
 function playSound(type) {
   if (!audioCtx || audioCtx.state !== 'running') return;
+  if (!sdkAudioEnabled) return; // platform-muted: create zero sound nodes
 
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
@@ -800,6 +827,40 @@ document.addEventListener('pointerdown', (e) => {
   if (e.target.closest('button')) vibrateHaptic(10);
 });
 
+// ---------- SDK-driven platform pause ----------
+// Distinct from the game's own round-lifecycle pausing (pauseGameLoop(), used
+// for game-over / Chest overlays) — this fires from ytgame.system.onPause at
+// ANY point (start screen, mid-run, mid-overlay), so it has to work
+// regardless of what else is happening. isPaused guards every input handler
+// and the loop itself, backing up the CSS pointer-events lockout.
+let isPaused = false;
+let wasRunningBeforePause = false;
+
+function handleSdkPause() {
+  if (isPaused) return;
+  isPaused = true;
+  document.body.classList.add('paused');
+  pauseOverlay.classList.remove('hidden');
+  wasRunningBeforePause = state.running;
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+  muteAudio();
+}
+
+function handleSdkResume() {
+  if (!isPaused) return;
+  isPaused = false;
+  document.body.classList.remove('paused');
+  pauseOverlay.classList.add('hidden');
+  unmuteAudio();
+  if (wasRunningBeforePause) {
+    lastFrameTime = performance.now();
+    rafId = requestAnimationFrame(loop);
+  }
+}
+
 // ---------- Input handling ----------
 const input = { left: false, right: false };
 
@@ -823,28 +884,34 @@ function setInputFromClientX(clientX, active) {
 
 let pointerActive = false;
 canvas.addEventListener('pointerdown', (e) => {
+  if (isPaused) return;
   pointerActive = true;
   setInputFromClientX(e.clientX, true);
   vibrateHaptic(10);
 });
 window.addEventListener('pointermove', (e) => {
+  if (isPaused) return;
   if (pointerActive) setInputFromClientX(e.clientX, true);
 });
 window.addEventListener('pointerup', () => {
+  if (isPaused) return;
   pointerActive = false;
   setInputFromClientX(0, false);
 });
 window.addEventListener('pointercancel', () => {
+  if (isPaused) return;
   pointerActive = false;
   setInputFromClientX(0, false);
 });
 
 // Keyboard support (desktop convenience)
 window.addEventListener('keydown', (e) => {
+  if (isPaused) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') input.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd') input.right = true;
 });
 window.addEventListener('keyup', (e) => {
+  if (isPaused) return;
   if (e.key === 'ArrowLeft' || e.key === 'a') input.left = false;
   if (e.key === 'ArrowRight' || e.key === 'd') input.right = false;
 });
@@ -866,6 +933,7 @@ const museumScreen = document.getElementById('museum-screen');
 const contractsScreen = document.getElementById('contracts-screen');
 const loadoutScreen = document.getElementById('loadout-screen');
 const toastEl = document.getElementById('toast');
+const pauseOverlay = document.getElementById('pause-overlay');
 
 const finalDepthEl = document.getElementById('final-depth');
 const finalGoldEl = document.getElementById('final-gold');
@@ -886,28 +954,23 @@ document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('restart-btn').addEventListener('click', startGame);
 
 // ---------- Rewarded video ads ----------
-// STILL A MOCK — swap the Promise body below for the real Mediacube SDK call
-// once its script tag + API docs are provided (need: the CDN <script> URL,
-// the function that requests a rewarded ad, and its success/fail callback
-// names). Keep the same Promise<boolean> contract (resolve(true) = ad
-// watched fully, resolve(false) = skipped/closed early/no fill) and keep the
-// muteAudio()/unmuteAudio() calls in the same places, so the three callers
-// (revive, 2x gold, chest magnet) don't need to change — they already only
-// grant their reward inside `if (watched) { ... }`, after this resolves.
-//
-// Expected shape of the real integration:
-//   function showRewardedVideo() {
-//     muteAudio();
-//     return new Promise((resolve) => {
-//       MediacubeSDK.showRewardedAd({           // <-- replace with real call
-//         onComplete: () => { unmuteAudio(); resolve(true); },
-//         onFail:     () => { unmuteAudio(); resolve(false); },
-//         onClose:    () => { unmuteAudio(); resolve(false); }, // closed early = no reward
-//       });
-//     });
-//   }
-function showRewardedVideo() {
+// Calls the real YouTube Playables SDK (ytgame.ads.requestRewardedAd) when
+// present — which the certification harness's mock always provides, so that
+// path is what gets exercised during testing. The setTimeout-based branch
+// only runs as a dev fallback when NEITHER the real SDK nor a test mock is
+// injected (e.g. opening index.html directly in a plain browser), so the ad
+// flow stays testable outside the Playables env. Player-initiated only (only
+// ever called from a click handler); resolves false on any failure/throw —
+// callers already only grant their reward inside `if (watched) { ... }`.
+function showRewardedVideo(rewardId) {
   muteAudio(); // duck game audio for the duration of the ad
+
+  if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestRewardedAd) {
+    return Promise.resolve(window.ytgame.ads.requestRewardedAd(rewardId))
+      .then((result) => { unmuteAudio(); return !!result; })
+      .catch(() => { unmuteAudio(); return false; }); // throw = graceful no-reward, not a crash
+  }
+
   return new Promise((resolve) => {
     const loadDelay = 800 + Math.random() * 1200; // fake network/ad-load latency
     setTimeout(() => {
@@ -918,12 +981,18 @@ function showRewardedVideo() {
   });
 }
 
-reviveBtn.addEventListener('click', async () => {
+const REWARD_ID_REVIVE = 'endlesscore-revive';
+const REWARD_ID_DOUBLE_GOLD = 'endlesscore-2xgold';
+const REWARD_ID_MAGNET = 'endlesscore-magnet';
+
+// Named (not an anonymous click closure) so it's directly callable by a test
+// harness. Grants the revive ONLY when the ad resolves truthy.
+async function watchAdRevive() {
   if (reviveBtn.disabled) return;
   reviveBtn.disabled = true;
   reviveBtn.textContent = 'Loading Ad...';
 
-  const watched = await showRewardedVideo();
+  const watched = await showRewardedVideo(REWARD_ID_REVIVE);
 
   if (watched) {
     console.log('AD: Revive ad watched — restoring 50% health');
@@ -944,14 +1013,17 @@ reviveBtn.addEventListener('click', async () => {
       reviveBtn.disabled = false;
     }, 1500);
   }
-});
+}
+reviveBtn.addEventListener('click', watchAdRevive);
 
-doubleGoldBtn.addEventListener('click', async () => {
+// Named for the same reason as watchAdRevive(); grants the reward only on a
+// truthy resolve.
+async function watchAdDoubleGold() {
   if (doubleGoldBtn.disabled) return;
   doubleGoldBtn.disabled = true;
   doubleGoldBtn.textContent = 'Loading Ad...';
 
-  const watched = await showRewardedVideo();
+  const watched = await showRewardedVideo(REWARD_ID_DOUBLE_GOLD);
 
   if (watched) {
     console.log('AD: 2x Gold ad watched — doubling gold');
@@ -969,7 +1041,8 @@ doubleGoldBtn.addEventListener('click', async () => {
       doubleGoldBtn.disabled = false;
     }, 1500);
   }
-});
+}
+doubleGoldBtn.addEventListener('click', watchAdDoubleGold);
 
 document.getElementById('upgrades-btn').addEventListener('click', openUpgradesScreen);
 document.getElementById('start-upgrades-btn').addEventListener('click', openUpgradesScreen);
@@ -1012,13 +1085,15 @@ const chestAdBtn = document.getElementById('chest-ad-btn');
 const chestSkipBtn = document.getElementById('chest-skip-btn');
 const CHEST_AD_BTN_DEFAULT_TEXT = chestAdBtn.textContent;
 
-chestAdBtn.addEventListener('click', async () => {
+// Named for the same reason as watchAdRevive(); grants the magnet buff only
+// on a truthy resolve.
+async function watchAdMagnet() {
   if (chestAdBtn.disabled) return;
   chestAdBtn.disabled = true;
   chestSkipBtn.disabled = true;
   chestAdBtn.textContent = 'Loading Ad...';
 
-  const watched = await showRewardedVideo();
+  const watched = await showRewardedVideo(REWARD_ID_MAGNET);
 
   chestAdBtn.disabled = false;
   chestSkipBtn.disabled = false;
@@ -1039,7 +1114,8 @@ chestAdBtn.addEventListener('click', async () => {
       chestSkipBtn.disabled = false;
     }, 1500);
   }
-});
+}
+chestAdBtn.addEventListener('click', watchAdMagnet);
 
 chestSkipBtn.addEventListener('click', () => {
   if (chestSkipBtn.disabled) return;
@@ -1204,6 +1280,35 @@ function updateHighScore() {
   return false;
 }
 
+// ---------- Interstitial ads (SDK) ----------
+// One fires at the very first game start of the session. After that, a ~90s
+// timer arms in the background (tickInterstitialTimer, polled once per frame)
+// but the ad itself only ever fires at a natural break — game over — never
+// mid-run, even if the timer elapses while a run is still in progress.
+const INTERSTITIAL_INTERVAL_MS = 90000;
+let firstInterstitialShown = false;
+let lastInterstitialTime = 0;
+let interstitialArmed = false;
+
+async function showInterstitialAd() {
+  lastInterstitialTime = Date.now();
+  interstitialArmed = false;
+  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestInterstitialAd)) {
+    return; // no SDK present (local/dev testing) — nothing to show
+  }
+  try {
+    await window.ytgame.ads.requestInterstitialAd();
+  } catch (e) {
+    // interstitial failures are never fatal — gameplay continues regardless
+  }
+}
+
+function tickInterstitialTimer() {
+  if (!interstitialArmed && firstInterstitialShown && Date.now() - lastInterstitialTime >= INTERSTITIAL_INTERVAL_MS) {
+    interstitialArmed = true; // will fire at the next natural break (game over)
+  }
+}
+
 // ---------- Game flow ----------
 function startGame() {
   world.rows = [];
@@ -1250,6 +1355,11 @@ function startGame() {
   newHighscoreBadge.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 
+  if (!firstInterstitialShown) {
+    firstInterstitialShown = true;
+    showInterstitialAd(); // fire-and-forget — never blocks the run from starting
+  }
+
   lastFrameTime = performance.now();
   rafId = requestAnimationFrame(loop);
 }
@@ -1264,6 +1374,11 @@ function endGame(causeOfDeath) {
   }
 
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
+  sdkSendScore(currentScore());
+
+  if (interstitialArmed) {
+    showInterstitialAd(); // the natural break the ~90s timer was waiting for
+  }
 
   finalDepthEl.textContent = state.maxDepthReached + 'm';
   finalGoldEl.textContent = state.gold;
@@ -1482,6 +1597,7 @@ function updateHealth(dt) {
 }
 
 function update(dt) {
+  tickInterstitialTimer(); // wall-clock based; keeps ticking regardless of run state
   updateParticles(dt);
   updateScreenShake(dt);
 
@@ -1717,6 +1833,8 @@ let lastFrameTime = performance.now();
 let rafId = null;
 
 function loop(now) {
+  if (isPaused) return; // defense-in-depth — handleSdkPause() already cancels rafId
+
   const dt = Math.min(0.05, (now - lastFrameTime) / 1000); // clamp dt to avoid big jumps
   lastFrameTime = now;
 
@@ -1740,7 +1858,98 @@ function pauseGameLoop() {
   }
 }
 
+// ---------- YouTube Playables SDK bootstrap ----------
+// Every hook here is wrapped so an SDK failure/absence can never break the
+// game — this file also has to run standalone (no ytgame) for local dev and
+// the browser-based verification workflow.
+function initPlayablesSDK() {
+  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV)) return;
+  try {
+    const sys = window.ytgame.system;
+    if (sys) {
+      if (sys.isAudioEnabled) applySdkAudioState(sys.isAudioEnabled());
+      if (sys.onAudioEnabledChange) sys.onAudioEnabledChange((enabled) => applySdkAudioState(enabled));
+      if (sys.onPause) sys.onPause(handleSdkPause);
+      if (sys.onResume) sys.onResume(handleSdkResume);
+    }
+  } catch (e) {
+    // SDK wiring must never block the game from running
+  }
+}
+
+function notifyFirstFrameReady() {
+  try {
+    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.firstFrameReady) {
+      window.ytgame.game.firstFrameReady();
+    }
+  } catch (e) {}
+}
+
+function notifyGameReady() {
+  try {
+    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.gameReady) {
+      window.ytgame.game.gameReady();
+    }
+  } catch (e) {}
+}
+
+function sdkSendScore(value) {
+  try {
+    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.engagement && window.ytgame.engagement.sendScore) {
+      window.ytgame.engagement.sendScore({ value });
+    }
+  } catch (e) {}
+}
+
+// Mirrors the same fields already covered by storageGet/storageSet into the
+// platform's own save slot, best-effort. localStorage/memory stays the
+// primary synchronous source (state is built from it at module-eval time,
+// before any async SDK call could resolve) — this is a secondary copy so
+// progress can follow the player across devices where the platform supports
+// it, not a replacement for the safe-storage fallback built above.
+function sdkSaveIfAvailable() {
+  try {
+    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.saveData) {
+      window.ytgame.game.saveData(JSON.stringify({
+        bankedGold: state.bankedGold,
+        highScore: state.highScore,
+        fuelUpgradeLevel: state.fuelUpgradeLevel,
+        relicsFound: state.relicsFound,
+        selectedClass: state.selectedClass,
+      }));
+    }
+  } catch (e) {}
+}
+
+// Best-effort async patch-in of the platform save over whatever
+// localStorage/memory already loaded synchronously. Known trade-off: the
+// very first frame can briefly show local data before this resolves and
+// patches the platform's copy in — acceptable since local storage already
+// mirrors the same values (see sdkSaveIfAvailable), so the two rarely
+// disagree in practice.
+async function sdkLoadAndMergeIfAvailable() {
+  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.loadData)) return;
+  try {
+    const raw = await window.ytgame.game.loadData();
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (typeof data.bankedGold === 'number') state.bankedGold = data.bankedGold;
+    if (typeof data.highScore === 'number') state.highScore = data.highScore;
+    if (typeof data.fuelUpgradeLevel === 'number') state.fuelUpgradeLevel = data.fuelUpgradeLevel;
+    if (Array.isArray(data.relicsFound)) state.relicsFound = data.relicsFound;
+    if (typeof data.selectedClass === 'string' && DRILL_CLASSES[data.selectedClass]) state.selectedClass = data.selectedClass;
+    startHighscoreEl.textContent = 'High Score: ' + state.highScore; // reflect a late-arriving platform save
+  } catch (e) {
+    // keep whatever local storage / defaults already loaded
+  }
+}
+
 // Initial idle render (so canvas isn't blank behind the start screen)
 startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 ensureRowsGenerated(20);
 render();
+
+initPlayablesSDK();
+notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above
+notifyGameReady();       // fully interactive immediately after — no separate loading phase in this game
+sdkLoadAndMergeIfAvailable();

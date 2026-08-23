@@ -4,10 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Endless Core</title>
+<script src="https://www.youtube.com/game_api/v1"></script>
 <link rel="stylesheet" href="style.css" />
-<!-- TODO: Mediacube Web SDK <script> tag goes here, before game.js loads.
-     Not inserted yet — the SDK snippet wasn't provided, and a real ad
-     network's CDN URL/API shouldn't be guessed at for a production build. -->
 </head>
 <body>
 <div id="game-container">
@@ -28,6 +26,11 @@
 
   <!-- Contract-complete toast -->
   <div id="toast" class="hidden"></div>
+
+  <!-- SDK-driven pause overlay (YouTube platform pause, not a player toggle) -->
+  <div id="pause-overlay" class="overlay hidden">
+    <h1>Paused</h1>
+  </div>
 
   <!-- Start Screen -->
   <div id="start-screen" class="overlay">
