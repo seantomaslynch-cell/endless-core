@@ -592,9 +592,14 @@ const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare
 const CHEST_CHANCE = 0.012;   // rare, but findable
 const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing enough
 
-// Diamonds: infinite/repeatable like Gold (no depth gate, no finite pool),
+// Diamonds: infinite/repeatable like Gold (no finite pool, unlike Relics),
 // but far rarer — a wrapped getter (not a bare constant) so the Diamond
-// Sieve Base upgrade can scale it per level.
+// Sieve Base upgrade can scale it per level. DIAMOND_MIN_DEPTH exists
+// specifically so a fresh run can never find one in the opening seconds —
+// confirmed from real play that one showed up 4 blocks from the very
+// start, which reads as unearned/unrealistic for a "rare" pickup. Base
+// fall speed is 140px/s = 3.5m/s (see drill.vy), so 50m is a ~14s floor.
+const DIAMOND_MIN_DEPTH = 50; // meters
 const DIAMOND_CHANCE_BASE = 0.0008;
 function diamondChance() {
   return DIAMOND_CHANCE_BASE * (1 + state.diamondSieveUpgradeLevel * DIAMOND_SIEVE_CHANCE_BONUS_PER_LEVEL);
@@ -1044,7 +1049,7 @@ function generateRow(rowIndex) {
       Math.random() < RELIC_CHANCE
     ) {
       row[x] = RELIC;
-    } else if (Math.random() < diamondChance()) {
+    } else if (rowIndex >= DIAMOND_MIN_DEPTH && Math.random() < diamondChance()) {
       row[x] = DIAMOND;
     } else if (Math.random() < CHEST_CHANCE) {
       row[x] = CHEST;
@@ -2001,7 +2006,7 @@ window.addEventListener('keyup', (e) => {
 
 // ---------- UI elements ----------
 const depthDisplay = document.getElementById('depth-display');
-const goldDisplay = document.getElementById('gold-display');
+const goldAmountTextEl = document.getElementById('gold-amount-text');
 const diamondDisplay = document.getElementById('diamond-display');
 const scoreDisplay = document.getElementById('score-display');
 const comboDisplay = document.getElementById('combo-display');
@@ -4211,7 +4216,7 @@ function render() {
   // only shows once it's actually above baseline (x1.0 on every frame of
   // every run was pure noise, never conveying anything).
   depthDisplay.textContent = '⛏️ ' + state.maxDepthReached + 'm';
-  goldDisplay.textContent = '🪙 ' + state.gold;
+  goldAmountTextEl.textContent = state.gold;
   diamondDisplay.textContent = '💎 ' + state.diamondsThisRun;
   scoreDisplay.textContent = '⭐ ' + currentScore();
   comboDisplay.textContent = 'x' + state.comboMultiplier.toFixed(1);

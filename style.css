@@ -85,6 +85,25 @@ body.paused #gameCanvas {
   color: #ffd700;
 }
 
+/* A real gold-colored icon instead of the 🪙 emoji — confirmed from a real
+   device screenshot that Apple's coin emoji renders closer to silver/pewter
+   than gold at this size, which is exactly backwards for a currency meant
+   to read as "gold" at a glance. Color emoji glyphs ignore CSS `color`
+   entirely, so no text-based fix exists — this is a real drawn element
+   instead, matching the same radial-gradient gold look already used for
+   the terrain Gold ore blocks. */
+.coin-icon {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff9c4, #ffd700 45%, #b8860b 100%);
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 3px rgba(255, 215, 0, 0.55);
+  vertical-align: middle;
+  margin-right: 1px;
+}
+
 #diamond-display {
   color: #4fd8ff;
 }
