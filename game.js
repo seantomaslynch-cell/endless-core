@@ -1130,6 +1130,8 @@ const state = {
   diamondsThisRun: 0,
   offlineRigUpgradeLevel: parseInt(storageGet('ec_offlineRigUpgradeLevel') || '0', 10),
   diamondSieveUpgradeLevel: parseInt(storageGet('ec_diamondSieveUpgradeLevel') || '0', 10),
+  unlockedBaseSkins: loadUnlockedBaseSkins(), // array of owned BASE_SKIN_DEFS ids, persisted
+  selectedBaseSkin: loadSelectedBaseSkin(), // BASE_SKIN_DEFS id, persisted
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -1329,6 +1331,67 @@ function purchaseDiamondPack(packId) {
   if (!pack) return;
   state.diamonds += pack.diamondAmount;
   storageSet('ec_diamonds', String(state.diamonds));
+}
+
+// Base Skins — purely cosmetic re-tints of the Base's hero scene, same
+// unlock-then-select shape as TRAIL_DEFS below but Diamond-priced instead
+// of Gold, and applied as a CSS filter (see #base-screen::before in
+// style.css) rather than swapping art, so no extra images are needed —
+// the 4 progression-tier scenes stay the source of truth, skins just tint
+// whichever one is currently showing.
+// sepia() first, then hue-rotate() — sepia collapses the source image into
+// a narrow warm-brown tonal range, so the hue-rotate that follows produces
+// one strong, uniform tint across the whole scene instead of each original
+// hue drifting independently (a much more convincing "reskin," not just a
+// slight shift). Plain hue-rotate alone was tried first and was barely
+// perceptible against this scene's already-warm/amber palette.
+const BASE_SKIN_DEFS = [
+  { id: 'standard', name: 'Standard Camp', cost: 0, swatch: '#c9995c', filter: 'none' },
+  { id: 'molten', name: 'Molten Camp', cost: 15, swatch: '#ff5a2e', filter: 'sepia(0.5) saturate(3.5) hue-rotate(-15deg) brightness(1.05)' },
+  { id: 'frost', name: 'Frost Camp', cost: 15, swatch: '#5fd0ff', filter: 'sepia(0.45) saturate(3) hue-rotate(165deg) brightness(1.1)' },
+  { id: 'verdant', name: 'Verdant Camp', cost: 20, swatch: '#4ee06a', filter: 'sepia(0.45) saturate(3.2) hue-rotate(65deg) brightness(1.05)' },
+  { id: 'royal', name: 'Royal Camp', cost: 25, swatch: '#b866ff', filter: 'sepia(0.45) saturate(3.2) hue-rotate(235deg) brightness(1.1)' },
+];
+
+function loadUnlockedBaseSkins() {
+  try {
+    const saved = JSON.parse(storageGet('ec_unlockedBaseSkins') || '["standard"]');
+    return Array.isArray(saved) && saved.includes('standard') ? saved : ['standard'];
+  } catch {
+    return ['standard'];
+  }
+}
+
+function loadSelectedBaseSkin() {
+  const saved = storageGet('ec_selectedBaseSkin');
+  const owned = loadUnlockedBaseSkins();
+  return saved && owned.includes(saved) ? saved : 'standard';
+}
+
+function isBaseSkinUnlocked(id) {
+  return state.unlockedBaseSkins.includes(id);
+}
+
+function getBaseSkinFilter() {
+  const skin = BASE_SKIN_DEFS.find((s) => s.id === state.selectedBaseSkin) || BASE_SKIN_DEFS[0];
+  return skin.filter;
+}
+
+function buyOrSelectBaseSkin(id) {
+  const skin = BASE_SKIN_DEFS.find((s) => s.id === id);
+  if (!skin) return;
+
+  if (isBaseSkinUnlocked(id)) {
+    state.selectedBaseSkin = id;
+    storageSet('ec_selectedBaseSkin', id);
+  } else if (state.diamonds >= skin.cost) {
+    state.diamonds -= skin.cost;
+    state.unlockedBaseSkins.push(id);
+    state.selectedBaseSkin = id;
+    storageSet('ec_diamonds', String(state.diamonds));
+    storageSet('ec_unlockedBaseSkins', JSON.stringify(state.unlockedBaseSkins));
+    storageSet('ec_selectedBaseSkin', id);
+  }
 }
 
 // ---------- Cosmetics: particle trails ----------
@@ -1996,6 +2059,7 @@ const offlineRigUpgradeBtn = document.getElementById('offline-rig-upgrade-btn');
 const diamondSieveUpgradeDescEl = document.getElementById('diamond-sieve-upgrade-desc');
 const diamondSieveUpgradeBtn = document.getElementById('diamond-sieve-upgrade-btn');
 const baseWatchAdDiamondBtn = document.getElementById('base-watch-ad-diamond-btn');
+const baseSkinListEl = document.getElementById('base-skin-list');
 const trailListEl = document.getElementById('trail-list');
 const trailsBankedGoldEl = document.getElementById('trails-banked-gold');
 const welcomeBackGoldEl = document.getElementById('welcome-back-gold');
@@ -2617,9 +2681,21 @@ function getBaseSceneTier() {
 function renderBaseScreen() {
   baseDiamondAmountEl.textContent = state.diamonds;
 
-  baseScreen.style.backgroundImage =
+  // Set as custom properties, not a direct style.backgroundImage, because
+  // the scene lives on #base-screen::before (see style.css) rather than on
+  // #base-screen itself — a Base Skin's filter needs to tint only the
+  // background art, not the real child elements (upgrade card text, gold
+  // icons, etc.) sitting on top of it, and CSS filter always applies to an
+  // element's whole rendered subtree, so it has to live on an isolated
+  // pseudo-element layer instead.
+  baseScreen.style.setProperty(
+    '--base-scene-bg',
     'linear-gradient(180deg, rgba(8, 6, 16, 0.25) 0%, rgba(8, 6, 16, 0.55) 55%, rgba(5, 4, 10, 0.94) 100%), ' +
-    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")';
+    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")'
+  );
+  baseScreen.style.setProperty('--base-skin-filter', getBaseSkinFilter());
+
+  renderBaseSkinsList();
 
   const offlineRateNow = getOfflineGoldPerHour();
   renderBaseUpgradeCard(
@@ -2635,6 +2711,41 @@ function renderBaseScreen() {
     state.diamondSieveUpgradeLevel, DIAMOND_SIEVE_UPGRADE_MAX_LEVEL, DIAMOND_SIEVE_UPGRADE_COSTS,
     'Diamond Find Rate ' + sieveNow + 'x', 'Diamond Find Rate ' + sieveNext + 'x'
   );
+}
+
+// Same map-to-innerHTML-then-rewire shape as renderTrailsScreen(), reusing
+// its .trail-card/.trail-swatch/.trail-name/.trail-select-btn CSS directly
+// (those classes are generic swatch-card styling, nothing trail-specific
+// baked in) rather than duplicating a near-identical stylesheet block.
+function renderBaseSkinsList() {
+  baseSkinListEl.innerHTML = BASE_SKIN_DEFS.map((skin) => {
+    const unlocked = isBaseSkinUnlocked(skin.id);
+    const isSelected = state.selectedBaseSkin === skin.id;
+
+    let actionHtml;
+    if (isSelected) {
+      actionHtml = `<button class="trail-select-btn" disabled>Selected</button>`;
+    } else if (unlocked) {
+      actionHtml = `<button class="trail-select-btn" data-skin-id="${skin.id}" data-owned="1">Select</button>`;
+    } else {
+      actionHtml = `<button class="trail-select-btn" data-skin-id="${skin.id}" ${state.diamonds < skin.cost ? 'disabled' : ''}>Unlock — ${skin.cost} 💎</button>`;
+    }
+
+    return `
+      <div class="trail-card ${isSelected ? 'active' : ''}">
+        <div class="trail-swatch" style="background:${skin.swatch}; color:${skin.swatch};"></div>
+        <div class="trail-name">${skin.name}</div>
+        ${actionHtml}
+      </div>
+    `;
+  }).join('');
+
+  baseSkinListEl.querySelectorAll('.trail-select-btn[data-skin-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      buyOrSelectBaseSkin(btn.dataset.skinId);
+      renderBaseScreen();
+    });
+  });
 }
 
 async function watchAdBonusDiamond() {

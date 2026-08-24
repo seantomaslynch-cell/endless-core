@@ -307,6 +307,16 @@ body.paused #gameCanvas {
   color: #ffd700;
 }
 
+/* Mid-screen section header (Base Skins) — same gold color as a real <h1>
+   but scaled down so it reads as "a section of this screen," not a second
+   page title competing with "THE BASE" above it. */
+.base-skins-heading {
+  font-size: 18px;
+  letter-spacing: 1px;
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
 /* "Kicker" line above the real title — carries the brand name (Endless
    Core) without competing with MINING RUSH, which is the name players
    actually recognize from the App Store listing ("Endless Core: Mining
@@ -381,10 +391,32 @@ body.paused #gameCanvas {
    since it swaps between 4 tiered scene images (base-scene-tier0..3.jpg) as
    state.offlineRigUpgradeLevel/diamondSieveUpgradeLevel grow, so upgrading
    visibly changes the base rather than just changing numbers on cards. */
+/* Grown past a single screenful once Camp Skins was added (title, subtitle,
+   diamond count, Descend, ad button, 2 upgrade cards, skins heading + list,
+   Close) — scoped to this screen alone rather than the shared .overlay rule,
+   since most other overlays don't need/want scrolling. */
 #base-screen {
+  overflow-y: auto;
+}
+
+/* The hero scene lives on its own pseudo-element layer, not directly on
+   #base-screen — a Base Skin's CSS filter (see BASE_SKIN_DEFS in game.js)
+   needs to tint only the background art, never the real children (upgrade
+   card text, buttons) stacked on top of it, and `filter` always applies to
+   an element's whole rendered subtree, so it has to be isolated here.
+   position:absolute + inset:0 pins it to the viewport-sized box even while
+   #base-screen's own content scrolls internally, so the art reads as a
+   fixed backdrop rather than scrolling away. --base-scene-bg/--base-skin-
+   filter are set from JS in renderBaseScreen(). */
+#base-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--base-scene-bg);
   background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  background-position: center 80%;
+  filter: var(--base-skin-filter, none);
 }
 
 /* Rising ember particles — cheap, pure-CSS "living scene" cue (Clash Royale-
