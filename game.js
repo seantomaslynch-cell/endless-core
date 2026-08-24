@@ -3701,35 +3701,45 @@ function createTileTexture(baseColorHex, seed, isStone) {
   tctx.fillStyle = baseColorHex;
   tctx.fillRect(0, 0, BLOCK, BLOCK);
 
-  // Blocky pixel-grid noise instead of a smooth diagonal gradient sheen +
-  // soft circular speckle — Minecraft's whole texture identity is visible
-  // square pixels of varying shade, not a painterly blur. Deterministic
-  // per-seed (stable across regenerations — same seed always draws the
-  // same texture, so it's safe to cache).
+  // Soft directional sheen (lit top-left, shadowed bottom-right) — a smooth
+  // gradient reads as polished/realistic, not flat-shaded like a texture
+  // swatch.
+  const grad = tctx.createLinearGradient(0, 0, BLOCK, BLOCK);
+  grad.addColorStop(0, 'rgba(255,255,255,0.16)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.20)');
+  tctx.fillStyle = grad;
+  tctx.fillRect(0, 0, BLOCK, BLOCK);
+
+  // Soft ambient-occlusion vignette toward the edges — gentle radial
+  // darkening reads as roundness/depth, the "premium mobile game" way to
+  // suggest a 3D block without a hard-edged bevel line doing all the work.
+  const vign = tctx.createRadialGradient(BLOCK / 2, BLOCK / 2, BLOCK * 0.25, BLOCK / 2, BLOCK / 2, BLOCK * 0.72);
+  vign.addColorStop(0, 'rgba(0,0,0,0)');
+  vign.addColorStop(1, 'rgba(0,0,0,0.16)');
+  tctx.fillStyle = vign;
+  tctx.fillRect(0, 0, BLOCK, BLOCK);
+
+  // Deterministic per-seed soft speckle — organic mineral/soil grain, not
+  // a repeating grid (stable across regenerations, same seed -> same
+  // texture, so caching it is safe).
   let s = seed;
   const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  const GRID = 6;
-  const cellSize = BLOCK / GRID;
-  for (let gy = 0; gy < GRID; gy++) {
-    for (let gx = 0; gx < GRID; gx++) {
-      const roll = rand();
-      if (roll < 0.32) {
-        tctx.fillStyle = 'rgba(0,0,0,' + (0.10 + rand() * 0.16) + ')';
-        tctx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
-      } else if (roll > 0.82) {
-        tctx.fillStyle = 'rgba(255,255,255,' + (0.08 + rand() * 0.14) + ')';
-        tctx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
-      }
-      // else: most cells stay plain base color — Minecraft textures are
-      // mostly-flat with scattered fleck pixels, not noise everywhere
-    }
+  const speckleCount = 7 + Math.floor(rand() * 5);
+  for (let i = 0; i < speckleCount; i++) {
+    const x = rand() * BLOCK;
+    const y = rand() * BLOCK;
+    const rad = 1 + rand() * 2;
+    tctx.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.11)' : 'rgba(0,0,0,0.15)';
+    tctx.beginPath();
+    tctx.arc(x, y, rad, 0, Math.PI * 2);
+    tctx.fill();
   }
 
   // Stone gets a jagged crack line for a genuine rock feel — dirt doesn't
-  // (a straight crack reads as rock, not soil). Same cached-once cost as
-  // everything else here.
+  // (a straight crack reads as rock, not soil).
   if (isStone) {
-    tctx.strokeStyle = 'rgba(0,0,0,0.30)';
+    tctx.strokeStyle = 'rgba(0,0,0,0.26)';
     tctx.lineWidth = 1;
     tctx.beginPath();
     let cx = 6 + rand() * (BLOCK - 12);
@@ -3744,18 +3754,18 @@ function createTileTexture(baseColorHex, seed, isStone) {
     tctx.stroke();
   }
 
-  // chunky bevel — light top/left edge, dark bottom/right edge. Slightly
-  // stronger contrast than the first pass for a more visibly "chunky 3D
-  // block" read rather than a subtle hint of one.
-  tctx.strokeStyle = 'rgba(255,255,255,0.26)';
-  tctx.lineWidth = 2;
+  // Soft edge highlight/shadow — thin, low-opacity, reads as a gently
+  // rounded edge (paired with the AO vignette above) rather than a hard
+  // blocky bevel border.
+  tctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  tctx.lineWidth = 1.5;
   tctx.beginPath();
   tctx.moveTo(1, BLOCK - 1);
   tctx.lineTo(1, 1);
   tctx.lineTo(BLOCK - 1, 1);
   tctx.stroke();
 
-  tctx.strokeStyle = 'rgba(0,0,0,0.32)';
+  tctx.strokeStyle = 'rgba(0,0,0,0.20)';
   tctx.beginPath();
   tctx.moveTo(BLOCK - 1, 1);
   tctx.lineTo(BLOCK - 1, BLOCK - 1);
@@ -3782,74 +3792,126 @@ function getTileTexture(type, biome, variantIndex) {
 // Gold stays a live per-cell draw (not pre-rendered) since it's rare enough
 // that the extra per-cell gradient cost is negligible, and the pulsing
 // shine needs performance.now() at draw time anyway.
-// Shared "ore embedded in stone" renderer for Gold/Diamond — a textured
-// stone-gray base with a small deterministic cluster of colored nugget
-// pixels, echoing Minecraft's actual ore-block language (ore = stone with
-// embedded mineral flecks, not a solid glowing gem/orb, which is what this
-// used to be). Position-seeded, not cached — the nugget layout is stable
-// per-cell without needing a whole texture-cache entry per ore type. Keeps
-// a toned-down pulsing glow as a gameplay affordance ("worth grabbing")
-// that a plain Minecraft ore block wouldn't have, since this game is read
-// at speed while drilling, not explored slowly.
-function drawOreBlock(screenX, screenY, nowMs, nuggetColors, glowColor) {
+function drawGoldBlock(screenX, screenY, nowMs) {
   const cx = screenX + BLOCK / 2;
   const cy = screenY + BLOCK / 2;
   const pulse = 0.5 + 0.5 * Math.sin(nowMs / 300);
 
-  ctx.fillStyle = '#6e6e6e';
-  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
-
-  let s = Math.round(screenX) * 7 + Math.round(screenY) * 13 + 11;
-  const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  const GRID = 6;
-  const cellSize = BLOCK / GRID;
-  for (let gy = 0; gy < GRID; gy++) {
-    for (let gx = 0; gx < GRID; gx++) {
-      const roll = rand();
-      if (roll < 0.28) {
-        ctx.fillStyle = 'rgba(0,0,0,' + (0.10 + rand() * 0.14) + ')';
-        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
-      } else if (roll > 0.88) {
-        ctx.fillStyle = 'rgba(255,255,255,0.10)';
-        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
-      }
-    }
-  }
-
   ctx.save();
-  ctx.globalAlpha = 0.22 + pulse * 0.14;
-  const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, BLOCK * 0.6);
-  glow.addColorStop(0, glowColor);
+  ctx.globalAlpha = 0.25 + pulse * 0.15;
+  const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, BLOCK * 0.72);
+  glow.addColorStop(0, 'rgba(255,215,0,0.55)');
   glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
   ctx.restore();
 
-  // Nugget cluster kept away from the outer edge cells — reads as an ore
-  // vein embedded in the middle of the block, not scattered to its border.
-  for (let gy = 1; gy < GRID - 1; gy++) {
-    for (let gx = 1; gx < GRID - 1; gx++) {
-      if (rand() < 0.34) {
-        ctx.fillStyle = nuggetColors[Math.floor(rand() * nuggetColors.length)];
-        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
-      }
-    }
-  }
+  const grad = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, BLOCK * 0.65);
+  grad.addColorStop(0, '#fff9c4');
+  grad.addColorStop(0.45, '#ffd700');
+  grad.addColorStop(1, '#b8860b');
+  ctx.fillStyle = grad;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  // Soft edge vignette for roundness, matching the terrain tiles' AO
+  const vign = ctx.createRadialGradient(cx, cy, BLOCK * 0.2, cx, cy, BLOCK * 0.7);
+  vign.addColorStop(0, 'rgba(0,0,0,0)');
+  vign.addColorStop(1, 'rgba(0,0,0,0.18)');
+  ctx.fillStyle = vign;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
   ctx.lineWidth = 1;
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
+
+  // Primary shine (pulses) plus a small fixed secondary glint — one moving
+  // highlight alone reads as flat plastic; two fixed points of light (one
+  // animated, one static) is what actually sells "polished metal."
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + pulse * 0.3})`;
+  ctx.beginPath();
+  ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath();
+  ctx.arc(cx + 7, cy + 6, 1.8, 0, Math.PI * 2);
+  ctx.fill();
 }
 
-function drawGoldBlock(screenX, screenY, nowMs) {
-  drawOreBlock(screenX, screenY, nowMs, ['#ffd700', '#fff59d', '#e6b800'], 'rgba(255,215,0,0.5)');
-}
-
-// DIAMOND previously had no draw case at all in the render loop (spawn and
-// collision logic existed, but nothing ever rendered it — it was invisible
-// in actual gameplay), discovered while making this pass.
+// Faceted crystal, not a recolored gold orb — angular kite-cut silhouette
+// (pointed top/bottom, wide middle) with distinctly shaded left/right/top
+// facets reads as an actual cut gemstone, and gives Diamond a shape players
+// can tell apart from Gold at a glance, not just a color. DIAMOND previously
+// had no draw case at all in the render loop (spawn and collision logic
+// existed, but nothing ever rendered it — it was invisible in actual
+// gameplay), discovered while making this pass.
 function drawDiamondBlock(screenX, screenY, nowMs) {
-  drawOreBlock(screenX, screenY, nowMs, ['#4fd8ff', '#b3f0ff', '#00b8d4'], 'rgba(79,216,255,0.5)');
+  const cx = screenX + BLOCK / 2;
+  const cy = screenY + BLOCK / 2;
+  const pulse = 0.5 + 0.5 * Math.sin(nowMs / 260);
+
+  ctx.save();
+  ctx.globalAlpha = 0.3 + pulse * 0.2;
+  const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, BLOCK * 0.75);
+  glow.addColorStop(0, 'rgba(79,216,255,0.6)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
+  ctx.restore();
+
+  const top = { x: cx, y: cy - BLOCK * 0.34 };
+  const midL = { x: cx - BLOCK * 0.32, y: cy - BLOCK * 0.04 };
+  const midR = { x: cx + BLOCK * 0.32, y: cy - BLOCK * 0.04 };
+  const bottom = { x: cx, y: cy + BLOCK * 0.36 };
+
+  // Left facet — lit
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(midL.x, midL.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.closePath();
+  ctx.fillStyle = '#b3f0ff';
+  ctx.fill();
+
+  // Right facet — shadowed
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(midR.x, midR.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.closePath();
+  ctx.fillStyle = '#00b8d4';
+  ctx.fill();
+
+  // Top table facet — brightest
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(midL.x, midL.y);
+  ctx.lineTo(midR.x, midR.y);
+  ctx.closePath();
+  ctx.fillStyle = '#e0fbff';
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(0,50,70,0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(midL.x, midL.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.lineTo(midR.x, midR.y);
+  ctx.closePath();
+  ctx.moveTo(top.x, top.y);
+  ctx.lineTo(bottom.x, bottom.y);
+  ctx.stroke();
+
+  ctx.fillStyle = `rgba(255,255,255,${0.6 + pulse * 0.35})`;
+  ctx.beginPath();
+  ctx.arc(cx - BLOCK * 0.08, cy - BLOCK * 0.14, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
 }
 
 // Reads as an actual supply crate, not a decorative stripe pattern — the
