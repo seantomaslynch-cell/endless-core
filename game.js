@@ -4081,13 +4081,16 @@ function render() {
 
   ctx.restore();
 
-  // HUD updates
-  depthDisplay.textContent = 'Depth: ' + state.maxDepthReached + 'm';
-  goldDisplay.textContent = 'Gold: ' + state.gold;
+  // HUD updates — icons instead of spelled-out labels, and the combo badge
+  // only shows once it's actually above baseline (x1.0 on every frame of
+  // every run was pure noise, never conveying anything).
+  depthDisplay.textContent = '⛏️ ' + state.maxDepthReached + 'm';
+  goldDisplay.textContent = '🪙 ' + state.gold;
   diamondDisplay.textContent = '💎 ' + state.diamondsThisRun;
-  scoreDisplay.textContent = 'Score: ' + currentScore();
-  comboDisplay.textContent = 'Combo: x' + state.comboMultiplier.toFixed(1);
-  biomeDisplay.textContent = 'Zone: ' + currentBiome.name;
+  scoreDisplay.textContent = '⭐ ' + currentScore();
+  comboDisplay.textContent = 'x' + state.comboMultiplier.toFixed(1);
+  comboDisplay.classList.toggle('hidden', state.comboMultiplier <= 1.0);
+  biomeDisplay.textContent = currentBiome.name;
   biomeDisplay.style.color = currentBiome.hudColor;
   if (state.magnetTimer > 0) {
     magnetDisplay.classList.remove('hidden');

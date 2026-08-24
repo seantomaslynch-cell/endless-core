@@ -52,12 +52,12 @@ body.paused #gameCanvas {
      island (desktop browsers, older phones) so this is a no-op there —
      it only matters on the iOS native build, where the WebView renders
      full-screen behind the status bar/dynamic island by default. */
-  top: calc(12px + env(safe-area-inset-top));
-  left: calc(12px + env(safe-area-inset-left));
-  right: calc(12px + env(safe-area-inset-right));
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(10px + env(safe-area-inset-left));
+  right: calc(10px + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   color: #fff;
   text-shadow: 0 2px 4px rgba(0,0,0,0.8);
   font-weight: bold;
@@ -65,8 +65,20 @@ body.paused #gameCanvas {
   z-index: 10;
 }
 
-#depth-display, #gold-display, #diamond-display, #score-display, #combo-display {
-  font-size: 18px;
+/* Currency pills reuse the same dark-rounded-badge language as the main
+   menu's #start-gold-pill/#start-diamond-pill, so the HUD reads as "the
+   same game" rather than a separate debug-style readout. */
+#hud-currency-row {
+  display: flex;
+  gap: 6px;
+}
+
+#gold-display, #diamond-display {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 12px;
+  padding: 2px 9px;
+  font-size: 14px;
+  width: fit-content;
 }
 
 #gold-display {
@@ -77,44 +89,53 @@ body.paused #gameCanvas {
   color: #4fd8ff;
 }
 
+#hud-stats-row {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  margin-top: 1px;
+}
+
 #score-display {
   color: #64b5f6;
 }
 
 #combo-display {
+  font-size: 12px;
   color: #ff7043;
-  transition: color 0.15s ease, transform 0.15s ease;
+  width: fit-content;
 }
 
 #biome-display {
-  font-size: 15px;
+  font-size: 12px;
+  opacity: 0.8;
   letter-spacing: 0.5px;
   transition: color 0.3s ease;
 }
 
 #magnet-display {
-  font-size: 15px;
+  font-size: 12px;
   color: #4dd0e1;
 }
 
 #shield-display {
-  font-size: 15px;
+  font-size: 12px;
   color: #64b5f6;
 }
 
 #score-boost-display {
-  font-size: 15px;
+  font-size: 12px;
   color: #ffd700;
 }
 
 #health-bar-outer {
-  width: 200px;
-  height: 16px;
+  width: 140px;
+  height: 12px;
   background: rgba(0,0,0,0.5);
   border: 2px solid #fff;
-  border-radius: 8px;
+  border-radius: 6px;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 #health-bar-inner {
@@ -125,13 +146,13 @@ body.paused #gameCanvas {
 }
 
 #overdrive-bar-outer {
-  width: 200px;
-  height: 10px;
+  width: 140px;
+  height: 7px;
   background: rgba(0,0,0,0.5);
   border: 2px solid #ffd54f;
-  border-radius: 6px;
+  border-radius: 5px;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 #overdrive-bar-inner {
