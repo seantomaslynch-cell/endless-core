@@ -2646,7 +2646,13 @@ const ACHIEVEMENT_DEFS = [
   { id: 'relics_all', icon: '🏺', name: 'Museum Curator', desc: `Collect all ${RELIC_DEFS.length} Relics`, check: () => state.relicsFound.length >= RELIC_DEFS.length },
   { id: 'contracts_20', icon: '📋', name: 'Contractor', desc: 'Complete 20 Daily Contracts', check: () => state.contractsCompletedLifetime >= 20 },
   { id: 'streak_7', icon: '🔥', name: 'Dedicated', desc: 'Reach a 7-day login streak', check: () => state.loginStreak >= 7 },
-  { id: 'base_maxed', icon: '🏰', name: 'Master Builder', desc: 'Max both Base upgrades', check: () => state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL },
+  {
+    id: 'base_maxed', icon: '🏰', name: 'Master Builder', desc: 'Max all 4 Base upgrades',
+    check: () => state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL &&
+      state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL &&
+      state.relicScannerUpgradeLevel >= RELIC_SCANNER_UPGRADE_MAX_LEVEL &&
+      state.contractRunnerUpgradeLevel >= CONTRACT_RUNNER_UPGRADE_MAX_LEVEL,
+  },
   { id: 'base_skins_all', icon: '🎨', name: 'Interior Decorator', desc: 'Unlock every Camp Skin', check: () => state.unlockedBaseSkins.length >= BASE_SKIN_DEFS.length },
 ];
 
