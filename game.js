@@ -1104,6 +1104,7 @@ const state = {
   lifetimeGoldEarned: parseInt(storageGet('ec_lifetimeGoldEarned') || '0', 10), // monotonically increasing — never decreases when gold is spent, unlike bankedGold; drives Achievements
   bestDepthEver: parseInt(storageGet('ec_bestDepthEver') || '0', 10), // separate from highScore, which is a composite depth+gold number
   contractsCompletedLifetime: parseInt(storageGet('ec_contractsCompletedLifetime') || '0', 10),
+  gameCenterAchievementsReported: loadGameCenterAchievementsReported(), // array of ACHIEVEMENT_DEFS ids already reported to Game Center — reporting is one-way and idempotent on Apple's side, but this avoids a network call every time the list re-renders
   audioMuted: storageGet('ec_audioMuted') === 'true', // player preference, distinct from the platform mute/SDK mute channels
   hapticsDisabled: storageGet('ec_hapticsDisabled') === 'true',
   // Reserved for the future paid track — always false/empty until a real IAP
@@ -1391,6 +1392,15 @@ const PASS_REWARDS = (() => {
   }
   return rewards;
 })();
+
+function loadGameCenterAchievementsReported() {
+  try {
+    const saved = JSON.parse(storageGet('ec_gameCenterAchievementsReported') || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
 
 function loadPassClaimedTiers() {
   try {
@@ -2067,6 +2077,7 @@ async function authenticateGameCenter() {
   try {
     const result = await plugin.authenticate();
     gameCenterAuthenticated = !!result.authenticated;
+    if (gameCenterAuthenticated) checkAndReportGameCenterAchievements(); // catches anything already earned before auth completed (e.g. a returning player who already cleared a threshold pre-Game-Center)
   } catch (e) {
     gameCenterAuthenticated = false;
   }
@@ -2080,6 +2091,17 @@ async function submitGameCenterScore(score) {
     await plugin.submitScore({ leaderboardID: GAME_CENTER_LEADERBOARD_ID, score: Math.round(score) });
   } catch (e) {
     // best-effort — a failed submission never blocks gameplay
+  }
+}
+
+async function submitGameCenterAchievement(achievementID) {
+  if (!isNativeMobile || !gameCenterAuthenticated) return;
+  const plugin = getGameCenterPlugin();
+  if (!plugin) return;
+  try {
+    await plugin.reportAchievement({ achievementID, percentComplete: 100 });
+  } catch (e) {
+    // best-effort — a failed report never blocks gameplay
   }
 }
 
@@ -2294,6 +2316,11 @@ settingsHapticsToggle.addEventListener('click', () => {
 // of that status. No Gold/reward attached to any of these on purpose, to
 // keep this pass scoped to "give players something to track," not a second
 // reward-economy surface layered on top of Season Pass + Contracts.
+// Each `id` here doubles as the Game Center Achievement ID — create matching
+// IDs (exact string match, e.g. "depth_100") in App Store Connect → this app
+// → Features → Game Center → Achievements for these to actually appear
+// there. Until an ID exists on Apple's side, reporting it is a harmless
+// silent no-op (see submitGameCenterAchievement).
 const ACHIEVEMENT_DEFS = [
   { id: 'depth_100', icon: '🥉', name: 'First Descent', desc: 'Reach 100m depth', check: () => state.bestDepthEver >= 100 },
   { id: 'depth_1000', icon: '⛏️', name: 'Going Deep', desc: 'Reach 1000m depth', check: () => state.bestDepthEver >= 1000 },
@@ -2304,6 +2331,20 @@ const ACHIEVEMENT_DEFS = [
   { id: 'contracts_20', icon: '📋', name: 'Contractor', desc: 'Complete 20 Daily Contracts', check: () => state.contractsCompletedLifetime >= 20 },
   { id: 'streak_7', icon: '🔥', name: 'Dedicated', desc: 'Reach a 7-day login streak', check: () => state.loginStreak >= 7 },
 ];
+
+// Reports any newly-true achievement to Game Center exactly once (tracked via
+// state.gameCenterAchievementsReported, persisted) — safe to call as often as
+// needed, e.g. every time a run ends.
+function checkAndReportGameCenterAchievements() {
+  if (!isNativeMobile || !gameCenterAuthenticated) return;
+  ACHIEVEMENT_DEFS.forEach((a) => {
+    if (state.gameCenterAchievementsReported.includes(a.id)) return;
+    if (!a.check()) return;
+    state.gameCenterAchievementsReported.push(a.id);
+    storageSet('ec_gameCenterAchievementsReported', JSON.stringify(state.gameCenterAchievementsReported));
+    submitGameCenterAchievement(a.id);
+  });
+}
 
 const achievementsCountEl = document.getElementById('achievements-count');
 const achievementListEl = document.getElementById('achievement-list');
@@ -2977,6 +3018,7 @@ function endGame(causeOfDeath) {
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
   sdkSendScore(currentScore());
   submitGameCenterScore(currentScore());
+  checkAndReportGameCenterAchievements();
 
   if (interstitialArmed) {
     showInterstitialAd(); // the natural break the ~90s timer was waiting for
