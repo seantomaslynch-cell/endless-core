@@ -600,6 +600,18 @@ body.paused #gameCanvas {
   filter: brightness(0.92);
 }
 
+/* Base gets a deliberately more prominent slot than the other secondary
+   nav buttons (it's a whole new progression system, not a single utility
+   screen) — full-width (spans both grid columns) with slightly larger
+   type, but keeps the same bronze/leather family as the rest of the grid
+   rather than a one-off color, matching this menu's "one accent color"
+   rule (see the comment above .overlay .menu-secondary-btn). */
+.overlay .menu-base-btn {
+  grid-column: span 2;
+  padding: 15px 10px;
+  font-size: 15px;
+}
+
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action
    type from the primary actions around them — leaving the run — so they
    get a neutral outlined glass treatment instead of a bright fill color. */
