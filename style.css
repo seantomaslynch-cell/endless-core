@@ -427,9 +427,16 @@ body.paused #gameCanvas {
 /* Grown past a single screenful once Camp Skins was added (title, subtitle,
    diamond count, Descend, ad button, 2 upgrade cards, skins heading + list,
    Close) — scoped to this screen alone rather than the shared .overlay rule,
-   since most other overlays don't need/want scrolling. */
+   since most other overlays don't need/want scrolling. touch-action must be
+   set explicitly — the global `touch-action: none` on body is non-inherited
+   and would otherwise silently block touch-scrolling this screen on the iOS
+   build specifically (desktop/mouse-driven testing never surfaces this;
+   mouse wheel and programmatic scrollTop both ignore touch-action entirely
+   — same reasoning already applied to .pass-tier-list/.achievement-list,
+   missed here when this screen was first made scrollable). */
 #base-screen {
   overflow-y: auto;
+  touch-action: pan-y;
 }
 
 /* The hero scene lives on its own pseudo-element layer, not directly on
