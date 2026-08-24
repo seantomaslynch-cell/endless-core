@@ -592,7 +592,21 @@ const RELIC_DEFS = [
   { id: 8, name: 'Golden Idol', color: '#ffb300' },
   { id: 9, name: 'Void Shard', color: '#4a148c' },
 ];
-const RELIC_MIN_DEPTH = 1500; // meters
+// 300m, not 1500m (the original value): passive fuel drain is a flat
+// 1.6 HP/s with NO upgrade that reduces it outside Magma (Cooling only
+// touches Magma's multiplier), and nothing upgrades vertical fall speed
+// (Thruster is horizontal steering only) — so a single life tops out
+// somewhere around 150-450m depending on Fuel Tank level and how much
+// Stone/Gas damage gets taken along the way, even for a skilled, fully-
+// upgraded run. 1500m was only reachable at all by chaining upwards of a
+// dozen "Watch Ad to Revive" cycles in one sitting (revive has no per-run
+// cap), which locks every Relic-gated class and achievement behind an ad
+// marathon rather than a good run. 300m is past the early Diamond
+// threshold (50m) and the "First Descent" achievement (100m) — a real
+// milestone, not a freebie — while staying reachable in a single
+// competent run so Relics (and Jackhammer/Plasma/Museum Curator behind
+// them) are a grind, not a soft-lock.
+const RELIC_MIN_DEPTH = 300; // meters
 const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare — wrapped by relicChance() below so the Relic Scanner Base upgrade can scale it per level
 function relicChance() {
   return RELIC_CHANCE * (1 + state.relicScannerUpgradeLevel * RELIC_CHANCE_BONUS_PER_LEVEL);
