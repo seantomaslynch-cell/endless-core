@@ -437,6 +437,17 @@ body.paused #gameCanvas {
 #base-screen {
   overflow-y: auto;
   touch-action: pan-y;
+  /* .overlay's justify-content:center is the actual remaining bug: when a
+     centered flex container's content overflows, the scrollable range gets
+     computed around that centering rather than the content's real start/
+     end, so the screen can open showing a MIDDLE slice of content (not the
+     title) with both the true top and true bottom only partially reachable
+     via scroll — this is a well-known flex-center-plus-overflow gotcha, not
+     something touch-action could ever have fixed. flex-start makes the
+     scrollable range unambiguous: content always starts at the real top,
+     and the real bottom (Close button) is always reachable by scrolling
+     all the way down. */
+  justify-content: flex-start;
 }
 
 /* The hero scene lives on its own pseudo-element layer, not directly on
