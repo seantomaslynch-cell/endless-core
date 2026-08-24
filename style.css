@@ -73,7 +73,18 @@ body.paused #gameCanvas {
   gap: 6px;
 }
 
+/* display:inline-flex + align-items:center, not vertical-align:middle — the
+   latter aligns to the middle of the parent's font x-height/baseline (not
+   the actual visual line box), which is a well-known source of an icon
+   sitting subtly off-center next to bold+text-shadowed text. Flex gives a
+   real, robust center regardless of font metrics. Same treatment applied
+   to every icon+text badge below (currency pills, streak pill, HUD
+   displays) so nothing in this family is left relying on the fragile
+   approach. */
 #gold-display, #diamond-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: rgba(0, 0, 0, 0.4);
   border-radius: 12px;
   padding: 2px 9px;
@@ -94,14 +105,14 @@ body.paused #gameCanvas {
    the terrain Gold ore blocks. */
 .coin-icon {
   display: inline-block;
+  flex-shrink: 0;
   width: 13px;
   height: 13px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #fff9c4, #ffd700 45%, #b8860b 100%);
   border: 1px solid rgba(0, 0, 0, 0.35);
   box-shadow: 0 0 3px rgba(255, 215, 0, 0.55);
-  vertical-align: middle;
-  margin-right: 1px;
+  vertical-align: middle; /* no-op inside the flex badges above (flex items ignore vertical-align) — only matters for the tutorial screen's plain-inline-text usage */
 }
 
 #diamond-display {
@@ -554,6 +565,9 @@ body.paused #gameCanvas {
 }
 
 #start-gold-pill, #start-diamond-pill, #start-streak-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 215, 0, 0.4);
   border-radius: 16px;
