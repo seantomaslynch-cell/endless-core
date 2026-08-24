@@ -4029,45 +4029,48 @@ function render() {
     ctx.restore();
   }
 
-  if (flashing) {
-    ctx.fillStyle = '#ff5252';
-  } else {
-    const bodyGrad = ctx.createLinearGradient(drillScreenX, drillScreenY, drillScreenX + drill.width, drillScreenY + drill.height);
-    bodyGrad.addColorStop(0, shadeColor(appearance.body, 0.35));
-    bodyGrad.addColorStop(1, appearance.body);
-    ctx.fillStyle = bodyGrad;
-  }
-  ctx.fillRect(drillScreenX, drillScreenY, drill.width, drill.height);
+  const bodyColor = flashing ? '#ff5252' : appearance.body;
+  const noseColor = flashing ? '#ff8a80' : appearance.nose;
 
-  // Mechanical segment rings — matches the app icon's own ringed-drill-body
-  // design. Purely cosmetic detail; only one drill exists at a time, so
-  // there's no per-block-style performance concern about adding it.
+  // Body: individually-shaded segments (each its own light-upper-left-to-
+  // dark-lower-right gradient), not one flat rect with thin ring lines —
+  // matches the app icon's actual stacked-beveled-cylinder look. No
+  // ctx.roundRect() for the segment corners — unsupported on iOS 15 WebKit
+  // (this app's IPHONEOS_DEPLOYMENT_TARGET), so plain fillRect segments
+  // deliver the shading improvement without that compatibility risk.
+  const segCount = 4;
+  const segHeight = drill.height / segCount;
+  for (let i = 0; i < segCount; i++) {
+    const segY = drillScreenY + i * segHeight;
+    const segGrad = ctx.createLinearGradient(drillScreenX, segY, drillScreenX + drill.width, segY + segHeight);
+    segGrad.addColorStop(0, shadeColor(bodyColor, 0.5));
+    segGrad.addColorStop(0.5, bodyColor);
+    segGrad.addColorStop(1, shadeColor(bodyColor, -0.35));
+    ctx.fillStyle = segGrad;
+    ctx.fillRect(drillScreenX, segY, drill.width, segHeight);
+  }
   if (!flashing) {
-    const ringCount = 3;
-    ctx.strokeStyle = shadeColor(appearance.body, -0.45);
-    ctx.lineWidth = 1.5;
-    for (let i = 1; i < ringCount; i++) {
-      const ringY = drillScreenY + (drill.height / ringCount) * i;
+    ctx.strokeStyle = shadeColor(bodyColor, -0.55);
+    ctx.lineWidth = 1.25;
+    for (let i = 1; i < segCount; i++) {
+      const grooveY = drillScreenY + i * segHeight;
       ctx.beginPath();
-      ctx.moveTo(drillScreenX + 2, ringY);
-      ctx.lineTo(drillScreenX + drill.width - 2, ringY);
+      ctx.moveTo(drillScreenX + 1, grooveY);
+      ctx.lineTo(drillScreenX + drill.width - 1, grooveY);
       ctx.stroke();
     }
   }
 
-  // drill nose (triangle pointing down) — gradient instead of flat, echoing
-  // the body's lit-from-one-side treatment
-  if (flashing) {
-    ctx.fillStyle = '#ff8a80';
-  } else {
-    const noseGrad = ctx.createLinearGradient(
-      drillScreenX, drillScreenY + drill.height,
-      drillScreenX + drill.width, drillScreenY + drill.height + 14
-    );
-    noseGrad.addColorStop(0, shadeColor(appearance.nose, 0.4));
-    noseGrad.addColorStop(1, shadeColor(appearance.nose, -0.2));
-    ctx.fillStyle = noseGrad;
-  }
+  // drill nose (triangle pointing down) — brighter/more saturated than the
+  // body, echoing the icon's glowing amber tip
+  const noseGrad = ctx.createLinearGradient(
+    drillScreenX, drillScreenY + drill.height,
+    drillScreenX + drill.width, drillScreenY + drill.height + 14
+  );
+  noseGrad.addColorStop(0, shadeColor(noseColor, 0.55));
+  noseGrad.addColorStop(0.5, noseColor);
+  noseGrad.addColorStop(1, shadeColor(noseColor, -0.15));
+  ctx.fillStyle = noseGrad;
   ctx.beginPath();
   ctx.moveTo(drillScreenX, drillScreenY + drill.height);
   ctx.lineTo(drillScreenX + drill.width, drillScreenY + drill.height);
@@ -4075,9 +4078,21 @@ function render() {
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = flashing ? '#333' : appearance.border;
-  ctx.lineWidth = appearance.borderWidth;
-  ctx.strokeRect(drillScreenX, drillScreenY, drill.width, drill.height);
+  // Bold outline around the whole silhouette (body + nose), near-black
+  // regardless of body hue — the single most identifying trait of the app
+  // icon's art style, missing entirely from the old thin per-class-colored
+  // stroke (appearance.border, e.g. Plasma's teal — nowhere near as bold).
+  ctx.strokeStyle = flashing ? '#4a0000' : 'rgba(12, 9, 7, 0.85)';
+  ctx.lineWidth = Math.max(2.5, appearance.borderWidth * 1.4);
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(drillScreenX, drillScreenY);
+  ctx.lineTo(drillScreenX + drill.width, drillScreenY);
+  ctx.lineTo(drillScreenX + drill.width, drillScreenY + drill.height);
+  ctx.lineTo(drillScreenX + drill.width / 2, drillScreenY + drill.height + 14);
+  ctx.lineTo(drillScreenX, drillScreenY + drill.height);
+  ctx.closePath();
+  ctx.stroke();
 
   ctx.restore();
 
