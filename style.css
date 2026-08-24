@@ -608,8 +608,33 @@ body.paused #gameCanvas {
    rule (see the comment above .overlay .menu-secondary-btn). */
 .overlay .menu-base-btn {
   grid-column: span 2;
-  padding: 15px 10px;
+  padding: 15px 14px;
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  /* A cropped preview of the Base's current scene tier (base-scene-tier0..3
+     .jpg, same images/logic as the Base screen itself — see
+     updateStartScreenHud() for the tier lookup and the assigned url()), so
+     progress is visible without opening the screen. background-size:cover
+     framed toward the bottom of the source image, where the actual camp/
+     rig detail sits (the top of those images is mostly empty sky/cave). */
+  background-size: cover;
+  background-position: center 80%;
+}
+
+.menu-base-btn-label {
+  font-size: 15px;
+}
+
+.menu-base-btn-progress {
+  font-size: 12px;
+  font-weight: normal;
+  opacity: 0.85;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px 8px;
+  border-radius: 8px;
 }
 
 /* "Main Menu" nav buttons (pause screen, Game Over) are a distinct action

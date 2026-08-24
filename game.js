@@ -1989,6 +1989,8 @@ const alloyUpgradeDescEl = document.getElementById('alloy-upgrade-desc');
 const alloyUpgradeBtn = document.getElementById('alloy-upgrade-btn');
 const baseDiamondAmountEl = document.getElementById('base-diamond-amount');
 const baseClaimBadgeEl = document.getElementById('base-claim-badge');
+const startBaseBtn = document.getElementById('start-base-btn');
+const startBaseProgressEl = document.getElementById('start-base-progress');
 const offlineRigUpgradeDescEl = document.getElementById('offline-rig-upgrade-desc');
 const offlineRigUpgradeBtn = document.getElementById('offline-rig-upgrade-btn');
 const diamondSieveUpgradeDescEl = document.getElementById('diamond-sieve-upgrade-desc');
@@ -2361,6 +2363,13 @@ function updateStartScreenHud() {
     (state.offlineRigUpgradeLevel < OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamonds >= OFFLINE_RIG_UPGRADE_COSTS[state.offlineRigUpgradeLevel]) ||
     (state.diamondSieveUpgradeLevel < DIAMOND_SIEVE_UPGRADE_MAX_LEVEL && state.diamonds >= DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel]);
   baseClaimBadgeEl.classList.toggle('hidden', !baseHasClaimable);
+
+  const baseCombinedLevel = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel;
+  const BASE_COMBINED_LEVEL_MAX = OFFLINE_RIG_UPGRADE_MAX_LEVEL + DIAMOND_SIEVE_UPGRADE_MAX_LEVEL;
+  startBaseProgressEl.textContent = 'Lv ' + baseCombinedLevel + '/' + BASE_COMBINED_LEVEL_MAX;
+  startBaseBtn.style.backgroundImage =
+    'linear-gradient(90deg, rgba(6, 5, 9, 0.72) 0%, rgba(6, 5, 9, 0.35) 55%, rgba(6, 5, 9, 0.72) 100%), ' +
+    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")';
 }
 
 // ---------- Settings overlay ----------
