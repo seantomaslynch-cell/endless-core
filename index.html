@@ -77,6 +77,7 @@
       <button id="start-loadout-btn" class="menu-secondary-btn">🛠️ Loadout</button>
       <button id="start-contracts-btn" class="menu-secondary-btn">📋 Daily Contracts</button>
       <button id="start-trails-btn" class="menu-secondary-btn">✨ Trails</button>
+      <button id="start-base-btn" class="menu-secondary-btn">🏰 Base<span id="base-claim-badge" class="claim-badge hidden"></span></button>
     </div>
   </div>
 
@@ -137,6 +138,32 @@
     </div>
 
     <button id="close-upgrades-btn">Close</button>
+  </div>
+
+  <!-- Base Overlay: hub for Descend + Diamond-funded Base upgrades. No
+       loss-on-death / extraction risk in this pass — see game.js comments
+       near the diamonds state fields for why. -->
+  <div id="base-screen" class="overlay hidden">
+    <h1>THE BASE</h1>
+    <p>💎 Diamonds: <span id="base-diamond-amount">0</span></p>
+
+    <button id="base-descend-btn" class="menu-primary-btn">⛏️ Descend</button>
+
+    <button id="base-watch-ad-diamond-btn">📺 Watch Ad for a Bonus Diamond</button>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Offline Rig</div>
+      <div class="upgrade-desc" id="offline-rig-upgrade-desc">Level 0/5 — Offline Gold Rate 10/hr</div>
+      <button id="offline-rig-upgrade-btn">Upgrade — 3 💎</button>
+    </div>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Diamond Sieve</div>
+      <div class="upgrade-desc" id="diamond-sieve-upgrade-desc">Level 0/5 — Diamond Find Rate 1.00x</div>
+      <button id="diamond-sieve-upgrade-btn">Upgrade — 5 💎</button>
+    </div>
+
+    <button id="close-base-btn">Close</button>
   </div>
 
   <!-- Trails Overlay (cosmetics) -->

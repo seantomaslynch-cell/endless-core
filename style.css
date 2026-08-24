@@ -376,6 +376,17 @@ body.paused #gameCanvas {
   50% { background-position: 53% 46%; }
 }
 
+/* The Base's hero art — same treatment as #start-screen (gradient scrim +
+   cover image), but the actual url() is set from JS in renderBaseScreen()
+   since it swaps between 4 tiered scene images (base-scene-tier0..3.jpg) as
+   state.offlineRigUpgradeLevel/diamondSieveUpgradeLevel grow, so upgrading
+   visibly changes the base rather than just changing numbers on cards. */
+#base-screen {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
 /* Rising ember particles — cheap, pure-CSS "living scene" cue (Clash Royale-
    style menus lean hard on ambient motion; this was the one thing our menu
    had none of). pointer-events:none so they can never intercept a tap even

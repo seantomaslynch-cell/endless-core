@@ -528,6 +528,7 @@ const GOLD = 3;
 const CHEST = 4;
 const RELIC = 5;
 const GAS = 6;
+const DIAMOND = 7;
 
 // ---------- Biomes (depth-based zones) ----------
 // Row index === depth in meters (BLOCK = 40px = 1m), so a row's biome is
@@ -590,6 +591,14 @@ const RELIC_MIN_DEPTH = 1500; // meters
 const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare
 const CHEST_CHANCE = 0.012;   // rare, but findable
 const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing enough
+
+// Diamonds: infinite/repeatable like Gold (no depth gate, no finite pool),
+// but far rarer — a wrapped getter (not a bare constant) so the Diamond
+// Sieve Base upgrade can scale it per level.
+const DIAMOND_CHANCE_BASE = 0.0008;
+function diamondChance() {
+  return DIAMOND_CHANCE_BASE * (1 + state.diamondSieveUpgradeLevel * DIAMOND_SIEVE_CHANCE_BONUS_PER_LEVEL);
+}
 
 // First 100m (rows 0-99) never spawns Stone or Gas — a hazard-free onboarding
 // stretch. The density ramp (stoneThreshold/goldChance) restarts its own
@@ -1035,6 +1044,8 @@ function generateRow(rowIndex) {
       Math.random() < RELIC_CHANCE
     ) {
       row[x] = RELIC;
+    } else if (Math.random() < diamondChance()) {
+      row[x] = DIAMOND;
     } else if (Math.random() < CHEST_CHANCE) {
       row[x] = CHEST;
     } else if (!inSafeZone && rowBiomeForSpawns.name !== 'Magma' && Math.random() < GAS_CHANCE) {
@@ -1112,6 +1123,13 @@ const state = {
   // now so the shape is already correct; nothing sets these yet.
   passPremiumUnlocked: storageGet('ec_passPremiumUnlocked') === 'true',
   passClaimedPremiumTiers: loadPassClaimedPremiumTiers(),
+  // The Base's rare currency — diamonds bank into `diamonds` at endGame()
+  // exactly like gold banks into bankedGold, so death never costs you any
+  // (deliberately no extraction/loss mechanic in this pass).
+  diamonds: parseInt(storageGet('ec_diamonds') || '0', 10),
+  diamondsThisRun: 0,
+  offlineRigUpgradeLevel: parseInt(storageGet('ec_offlineRigUpgradeLevel') || '0', 10),
+  diamondSieveUpgradeLevel: parseInt(storageGet('ec_diamondSieveUpgradeLevel') || '0', 10),
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -1256,6 +1274,61 @@ function buyAlloyUpgrade() {
   state.alloyUpgradeLevel += 1;
   storageSet('ec_bankedGold', String(state.bankedGold));
   storageSet('ec_alloyUpgradeLevel', String(state.alloyUpgradeLevel));
+}
+
+// ---------- The Base: Diamond-funded upgrades ----------
+// Same generateUpgradeCosts()/renderUpgradeCard() pattern as the Tech Tree
+// above, but spent with Diamonds (state.diamonds) instead of Gold, and each
+// tied to an already-existing system rather than a new mechanic.
+const OFFLINE_RIG_UPGRADE_COSTS = generateUpgradeCosts(3, 1.8, 5);
+const OFFLINE_RIG_UPGRADE_MAX_LEVEL = OFFLINE_RIG_UPGRADE_COSTS.length;
+const OFFLINE_GOLD_PER_HOUR_BONUS_PER_LEVEL = 4; // flat Gold/hr, per level, on top of OFFLINE_GOLD_PER_HOUR
+
+function getOfflineGoldPerHour() {
+  return OFFLINE_GOLD_PER_HOUR + state.offlineRigUpgradeLevel * OFFLINE_GOLD_PER_HOUR_BONUS_PER_LEVEL;
+}
+
+function buyOfflineRigUpgrade() {
+  if (state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL) return;
+  const cost = OFFLINE_RIG_UPGRADE_COSTS[state.offlineRigUpgradeLevel];
+  if (state.diamonds < cost) return;
+
+  state.diamonds -= cost;
+  state.offlineRigUpgradeLevel += 1;
+  storageSet('ec_diamonds', String(state.diamonds));
+  storageSet('ec_offlineRigUpgradeLevel', String(state.offlineRigUpgradeLevel));
+}
+
+const DIAMOND_SIEVE_UPGRADE_COSTS = generateUpgradeCosts(5, 1.9, 5);
+const DIAMOND_SIEVE_UPGRADE_MAX_LEVEL = DIAMOND_SIEVE_UPGRADE_COSTS.length;
+const DIAMOND_SIEVE_CHANCE_BONUS_PER_LEVEL = 0.25; // relative bonus to diamondChance(), per level
+
+function buyDiamondSieveUpgrade() {
+  if (state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL) return;
+  const cost = DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel];
+  if (state.diamonds < cost) return;
+
+  state.diamonds -= cost;
+  state.diamondSieveUpgradeLevel += 1;
+  storageSet('ec_diamonds', String(state.diamonds));
+  storageSet('ec_diamondSieveUpgradeLevel', String(state.diamondSieveUpgradeLevel));
+}
+
+// Diamond IAP packs — inert scaffold, same pattern as the Season Pass
+// premium track (see unlockPassPremium()/claimPassPremiumTier() below):
+// data model + a purchase-handler function exist, but nothing renders any
+// purchase UI and nothing calls purchaseDiamondPack() yet. Ships as an
+// empty array (not populated-but-null rows) since there's no non-IAP
+// reason for a pack row to exist at all. Intended call site: a future
+// StoreKit purchase-success handler, once real products exist in App
+// Store Connect and there's real post-launch usage data to price against.
+const DIAMOND_IAP_PACKS = [];
+
+function purchaseDiamondPack(packId) {
+  const pack = DIAMOND_IAP_PACKS.find((p) => p.id === packId);
+  if (!pack) return;
+  state.diamonds += pack.diamondAmount;
+  storageSet('ec_diamonds', String(state.diamonds));
 }
 
 // ---------- Cosmetics: particle trails ----------
@@ -1887,6 +1960,7 @@ const trailsScreen = document.getElementById('trails-screen');
 const passScreen = document.getElementById('pass-screen');
 const settingsScreen = document.getElementById('settings-screen');
 const achievementsScreen = document.getElementById('achievements-screen');
+const baseScreen = document.getElementById('base-screen');
 const welcomeBackScreen = document.getElementById('welcome-back-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
@@ -1913,6 +1987,13 @@ const thrusterUpgradeDescEl = document.getElementById('thruster-upgrade-desc');
 const thrusterUpgradeBtn = document.getElementById('thruster-upgrade-btn');
 const alloyUpgradeDescEl = document.getElementById('alloy-upgrade-desc');
 const alloyUpgradeBtn = document.getElementById('alloy-upgrade-btn');
+const baseDiamondAmountEl = document.getElementById('base-diamond-amount');
+const baseClaimBadgeEl = document.getElementById('base-claim-badge');
+const offlineRigUpgradeDescEl = document.getElementById('offline-rig-upgrade-desc');
+const offlineRigUpgradeBtn = document.getElementById('offline-rig-upgrade-btn');
+const diamondSieveUpgradeDescEl = document.getElementById('diamond-sieve-upgrade-desc');
+const diamondSieveUpgradeBtn = document.getElementById('diamond-sieve-upgrade-btn');
+const baseWatchAdDiamondBtn = document.getElementById('base-watch-ad-diamond-btn');
 const trailListEl = document.getElementById('trail-list');
 const trailsBankedGoldEl = document.getElementById('trails-banked-gold');
 const welcomeBackGoldEl = document.getElementById('welcome-back-gold');
@@ -1965,6 +2046,7 @@ function showRewardedVideo(rewardId) {
 
 const REWARD_ID_REVIVE = 'endlesscore-revive';
 const REWARD_ID_DOUBLE_GOLD = 'endlesscore-2xgold';
+const REWARD_ID_BONUS_DIAMOND = 'endlesscore-bonusdiamond';
 
 // Chest power-ups — previously Magnet was the only thing a Supply Cache
 // could grant. Endless runners with real power-up variety (Subway Surfers'
@@ -2245,6 +2327,7 @@ function openOverlay(screenEl) {
   passScreen.classList.add('hidden');
   settingsScreen.classList.add('hidden');
   achievementsScreen.classList.add('hidden');
+  baseScreen.classList.add('hidden');
   startScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   screenEl.classList.remove('hidden');
@@ -2273,6 +2356,11 @@ function updateStartScreenHud() {
   const currentTier = getPassTierForXp(state.passXp);
   const hasClaimable = PASS_REWARDS.some((r) => r.tier <= currentTier && !state.passClaimedTiers.includes(r.tier));
   passClaimBadgeEl.classList.toggle('hidden', !hasClaimable);
+
+  const baseHasClaimable =
+    (state.offlineRigUpgradeLevel < OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamonds >= OFFLINE_RIG_UPGRADE_COSTS[state.offlineRigUpgradeLevel]) ||
+    (state.diamondSieveUpgradeLevel < DIAMOND_SIEVE_UPGRADE_MAX_LEVEL && state.diamonds >= DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel]);
+  baseClaimBadgeEl.classList.toggle('hidden', !baseHasClaimable);
 }
 
 // ---------- Settings overlay ----------
@@ -2467,6 +2555,101 @@ function renderUpgradesScreen() {
   );
 }
 
+// ---------- The Base overlay ----------
+document.getElementById('start-base-btn').addEventListener('click', openBaseScreen);
+document.getElementById('close-base-btn').addEventListener('click', () => {
+  closeOverlay(baseScreen);
+});
+document.getElementById('base-descend-btn').addEventListener('click', startGame);
+document.getElementById('offline-rig-upgrade-btn').addEventListener('click', () => {
+  buyOfflineRigUpgrade();
+  renderBaseScreen();
+});
+document.getElementById('diamond-sieve-upgrade-btn').addEventListener('click', () => {
+  buyDiamondSieveUpgrade();
+  renderBaseScreen();
+});
+baseWatchAdDiamondBtn.addEventListener('click', watchAdBonusDiamond);
+
+function openBaseScreen() {
+  renderBaseScreen();
+  openOverlay(baseScreen);
+}
+
+// Same "Level X/MAX — desc (next: desc)" / "MAX LEVEL" shape as
+// renderUpgradeCard() above, but Diamond-priced rather than Gold-priced —
+// kept as its own small function instead of parameterizing the Tech Tree's
+// version, since that version is called from four already-working upgrade
+// cards this isn't worth risking a change to right before submission.
+function renderBaseUpgradeCard(descEl, btnEl, level, maxLevel, costs, currentLabel, nextLabel) {
+  if (level >= maxLevel) {
+    descEl.textContent = `Level ${level}/${maxLevel} — ${currentLabel}`;
+    btnEl.textContent = 'MAX LEVEL';
+    btnEl.disabled = true;
+  } else {
+    const cost = costs[level];
+    descEl.textContent = `Level ${level}/${maxLevel} — ${currentLabel} (next: ${nextLabel})`;
+    btnEl.textContent = 'Upgrade — ' + cost + ' 💎';
+    btnEl.disabled = state.diamonds < cost;
+  }
+}
+
+// The Base's hero art has 4 tiers (base-scene-tier0..3.jpg) so upgrading
+// visibly changes the scene, not just numbers on cards — combined level
+// across both upgrades (0-10 total) buckets into 4 tiers.
+function getBaseSceneTier() {
+  const combined = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel;
+  if (combined <= 0) return 0;
+  if (combined <= 3) return 1;
+  if (combined <= 7) return 2;
+  return 3;
+}
+
+function renderBaseScreen() {
+  baseDiamondAmountEl.textContent = state.diamonds;
+
+  baseScreen.style.backgroundImage =
+    'linear-gradient(180deg, rgba(8, 6, 16, 0.25) 0%, rgba(8, 6, 16, 0.55) 55%, rgba(5, 4, 10, 0.94) 100%), ' +
+    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")';
+
+  const offlineRateNow = getOfflineGoldPerHour();
+  renderBaseUpgradeCard(
+    offlineRigUpgradeDescEl, offlineRigUpgradeBtn,
+    state.offlineRigUpgradeLevel, OFFLINE_RIG_UPGRADE_MAX_LEVEL, OFFLINE_RIG_UPGRADE_COSTS,
+    'Offline Gold Rate ' + offlineRateNow + '/hr', 'Offline Gold Rate ' + (offlineRateNow + OFFLINE_GOLD_PER_HOUR_BONUS_PER_LEVEL) + '/hr'
+  );
+
+  const sieveNow = (1 + state.diamondSieveUpgradeLevel * DIAMOND_SIEVE_CHANCE_BONUS_PER_LEVEL).toFixed(2);
+  const sieveNext = (1 + (state.diamondSieveUpgradeLevel + 1) * DIAMOND_SIEVE_CHANCE_BONUS_PER_LEVEL).toFixed(2);
+  renderBaseUpgradeCard(
+    diamondSieveUpgradeDescEl, diamondSieveUpgradeBtn,
+    state.diamondSieveUpgradeLevel, DIAMOND_SIEVE_UPGRADE_MAX_LEVEL, DIAMOND_SIEVE_UPGRADE_COSTS,
+    'Diamond Find Rate ' + sieveNow + 'x', 'Diamond Find Rate ' + sieveNext + 'x'
+  );
+}
+
+async function watchAdBonusDiamond() {
+  if (baseWatchAdDiamondBtn.disabled) return;
+  baseWatchAdDiamondBtn.disabled = true;
+  baseWatchAdDiamondBtn.textContent = 'Loading Ad...';
+
+  const watched = await showRewardedVideo(REWARD_ID_BONUS_DIAMOND);
+
+  if (watched) {
+    state.diamonds += 1;
+    storageSet('ec_diamonds', String(state.diamonds));
+    renderBaseScreen();
+    baseWatchAdDiamondBtn.textContent = '📺 Watch Ad for a Bonus Diamond';
+    baseWatchAdDiamondBtn.disabled = false; // unlike a per-run ad (Double Gold), Base is a persistent hub with no natural reset point — re-enable immediately so it stays usable
+  } else {
+    baseWatchAdDiamondBtn.textContent = 'Ad Unavailable — Try Again';
+    setTimeout(() => {
+      baseWatchAdDiamondBtn.textContent = '📺 Watch Ad for a Bonus Diamond';
+      baseWatchAdDiamondBtn.disabled = false;
+    }, 1500);
+  }
+}
+
 // ---------- Chest overlay ----------
 const chestAdBtn = document.getElementById('chest-ad-btn');
 const chestSkipBtn = document.getElementById('chest-skip-btn');
@@ -2559,6 +2742,7 @@ function goToMainMenu() {
   passScreen.classList.add('hidden');
   settingsScreen.classList.add('hidden');
   achievementsScreen.classList.add('hidden');
+  baseScreen.classList.add('hidden');
   pauseBtn.classList.add('hidden');
   startHighscoreEl.textContent = 'High Score: ' + state.highScore;
   startScreen.classList.remove('hidden');
@@ -2948,6 +3132,7 @@ function startGame() {
   state.running = true;
   state.gameOver = false;
   state.gold = 0;
+  state.diamondsThisRun = 0;
   state.maxDepthReached = 0;
   state.startTime = performance.now();
   state.comboMultiplier = 1.0;
@@ -2978,6 +3163,7 @@ function startGame() {
   passScreen.classList.add('hidden');
   settingsScreen.classList.add('hidden');
   achievementsScreen.classList.add('hidden');
+  baseScreen.classList.add('hidden');
   manualPauseScreen.classList.add('hidden');
   newHighscoreBadge.classList.add('hidden');
   pauseBtn.classList.remove('hidden');
@@ -3013,6 +3199,8 @@ function endGame(causeOfDeath) {
   if (state.pendingContractGold > 0) {
     syncBankedGold(state.pendingContractGold);
   }
+  state.diamonds += state.diamondsThisRun;
+  storageSet('ec_diamonds', String(state.diamonds));
   awardPassXp(state.maxDepthReached * PASS_XP_PER_METER_DEPTH + state.gold * PASS_XP_PER_GOLD);
 
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
@@ -3108,6 +3296,13 @@ function updateCollisions(dt) {
       spawnParticles(cellCenterX, cellCenterY, '#ffd700', 10);
       triggerScreenShake(3, 0.08);
       playSound('coin');
+    } else if (block === DIAMOND) {
+      setBlock(row, col, EMPTY);
+      state.diamondsThisRun += 1;
+      spawnParticles(cellCenterX, cellCenterY, '#4fd8ff', 12);
+      triggerScreenShake(3, 0.08);
+      playSound('relic');
+      queueToast('💎 Diamond!');
     } else if (block === STONE) {
       setBlock(row, col, EMPTY);
       if (state.overdriveActive) {
@@ -3976,7 +4171,7 @@ function checkOfflineEarnings() {
   if (!Number.isFinite(lastPlayed) || lastPlayed <= 0) return;
 
   const elapsedMs = clamp(now - lastPlayed, 0, OFFLINE_CAP_MS);
-  const earnedGold = Math.floor((elapsedMs / (60 * 60 * 1000)) * OFFLINE_GOLD_PER_HOUR);
+  const earnedGold = Math.floor((elapsedMs / (60 * 60 * 1000)) * getOfflineGoldPerHour());
   if (earnedGold <= 0) return;
 
   pendingOfflineGold = earnedGold;
