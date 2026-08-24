@@ -586,9 +586,17 @@ const RELIC_DEFS = [
   { id: 2, name: 'Magma Core Shard', color: '#ff5722' },
   { id: 3, name: 'Fossilized Gear', color: '#8bc34a' },
   { id: 4, name: "Prospector's Locket", color: '#ce93d8' },
+  { id: 5, name: 'Sunken Anchor', color: '#26a69a' },
+  { id: 6, name: 'Meteor Fragment', color: '#7c4dff' },
+  { id: 7, name: 'Crystal Skull', color: '#e0e0e0' },
+  { id: 8, name: 'Golden Idol', color: '#ffb300' },
+  { id: 9, name: 'Void Shard', color: '#4a148c' },
 ];
 const RELIC_MIN_DEPTH = 1500; // meters
-const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare
+const RELIC_CHANCE = 0.003;   // <0.5%, ultra-rare — wrapped by relicChance() below so the Relic Scanner Base upgrade can scale it per level
+function relicChance() {
+  return RELIC_CHANCE * (1 + state.relicScannerUpgradeLevel * RELIC_CHANCE_BONUS_PER_LEVEL);
+}
 const CHEST_CHANCE = 0.012;   // rare, but findable
 const GAS_CHANCE = 0.015;     // Dirt/Ice only — Magma is already punishing enough
 
@@ -1046,7 +1054,7 @@ function generateRow(rowIndex) {
     if (
       rowIndex >= RELIC_MIN_DEPTH &&
       state.relicsFound.length < RELIC_DEFS.length &&
-      Math.random() < RELIC_CHANCE
+      Math.random() < relicChance()
     ) {
       row[x] = RELIC;
     } else if (rowIndex >= DIAMOND_MIN_DEPTH && Math.random() < diamondChance()) {
@@ -1138,6 +1146,9 @@ const state = {
   unlockedBaseSkins: loadUnlockedBaseSkins(), // array of owned BASE_SKIN_DEFS ids, persisted
   selectedBaseSkin: loadSelectedBaseSkin(), // BASE_SKIN_DEFS id, persisted
   hasSeenTutorial: storageGet('ec_hasSeenTutorial') === 'true',
+  prestigeLevel: parseInt(storageGet('ec_prestigeLevel') || '0', 10),
+  relicScannerUpgradeLevel: parseInt(storageGet('ec_relicScannerUpgradeLevel') || '0', 10),
+  contractRunnerUpgradeLevel: parseInt(storageGet('ec_contractRunnerUpgradeLevel') || '0', 10),
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -1320,6 +1331,83 @@ function buyDiamondSieveUpgrade() {
   state.diamondSieveUpgradeLevel += 1;
   storageSet('ec_diamonds', String(state.diamonds));
   storageSet('ec_diamondSieveUpgradeLevel', String(state.diamondSieveUpgradeLevel));
+}
+
+const RELIC_SCANNER_UPGRADE_COSTS = generateUpgradeCosts(8, 1.8, 5);
+const RELIC_SCANNER_UPGRADE_MAX_LEVEL = RELIC_SCANNER_UPGRADE_COSTS.length;
+const RELIC_CHANCE_BONUS_PER_LEVEL = 0.25; // relative bonus to relicChance(), per level — same shape as Diamond Sieve
+
+function buyRelicScannerUpgrade() {
+  if (state.relicScannerUpgradeLevel >= RELIC_SCANNER_UPGRADE_MAX_LEVEL) return;
+  const cost = RELIC_SCANNER_UPGRADE_COSTS[state.relicScannerUpgradeLevel];
+  if (state.diamonds < cost) return;
+
+  state.diamonds -= cost;
+  state.relicScannerUpgradeLevel += 1;
+  storageSet('ec_diamonds', String(state.diamonds));
+  storageSet('ec_relicScannerUpgradeLevel', String(state.relicScannerUpgradeLevel));
+}
+
+const CONTRACT_RUNNER_UPGRADE_COSTS = generateUpgradeCosts(6, 1.8, 5);
+const CONTRACT_RUNNER_UPGRADE_MAX_LEVEL = CONTRACT_RUNNER_UPGRADE_COSTS.length;
+
+function getContractGoldMultiplier() {
+  return 1 + state.contractRunnerUpgradeLevel * 0.15;
+}
+
+function buyContractRunnerUpgrade() {
+  if (state.contractRunnerUpgradeLevel >= CONTRACT_RUNNER_UPGRADE_MAX_LEVEL) return;
+  const cost = CONTRACT_RUNNER_UPGRADE_COSTS[state.contractRunnerUpgradeLevel];
+  if (state.diamonds < cost) return;
+
+  state.diamonds -= cost;
+  state.contractRunnerUpgradeLevel += 1;
+  storageSet('ec_diamonds', String(state.diamonds));
+  storageSet('ec_contractRunnerUpgradeLevel', String(state.contractRunnerUpgradeLevel));
+}
+
+// ---------- Prestige ----------
+// The actual fix for "maxes everything and feels done in a day" — the
+// standard idle-game answer (Mr. Mine, Deep Town, etc.): once every
+// grindable upgrade is maxed, reset the economy for a permanent bonus that
+// keeps compounding. Collection/achievement progress (Relics, Trails, Base
+// Skins, Season Pass, lifetime stats) is real effort a player already put
+// in and is never touched — only the re-earnable Gold/Diamond economy
+// resets, exactly like every reference prestige system.
+function isPrestigeEligible() {
+  return state.fuelUpgradeLevel >= FUEL_UPGRADE_MAX_LEVEL &&
+    state.coolingUpgradeLevel >= COOLING_UPGRADE_MAX_LEVEL &&
+    state.thrusterUpgradeLevel >= THRUSTER_UPGRADE_MAX_LEVEL &&
+    state.alloyUpgradeLevel >= ALLOY_UPGRADE_MAX_LEVEL &&
+    state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL &&
+    state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL &&
+    state.relicScannerUpgradeLevel >= RELIC_SCANNER_UPGRADE_MAX_LEVEL &&
+    state.contractRunnerUpgradeLevel >= CONTRACT_RUNNER_UPGRADE_MAX_LEVEL;
+}
+
+function doPrestige() {
+  if (!isPrestigeEligible()) return;
+
+  state.prestigeLevel += 1;
+  storageSet('ec_prestigeLevel', String(state.prestigeLevel));
+
+  state.bankedGold = 0;
+  state.diamonds = 0;
+  state.fuelUpgradeLevel = 0;
+  state.coolingUpgradeLevel = 0;
+  state.thrusterUpgradeLevel = 0;
+  state.alloyUpgradeLevel = 0;
+  state.offlineRigUpgradeLevel = 0;
+  state.diamondSieveUpgradeLevel = 0;
+  state.relicScannerUpgradeLevel = 0;
+  state.contractRunnerUpgradeLevel = 0;
+  [
+    'ec_bankedGold', 'ec_diamonds', 'ec_fuelUpgradeLevel', 'ec_coolingUpgradeLevel',
+    'ec_thrusterUpgradeLevel', 'ec_alloyUpgradeLevel', 'ec_offlineRigUpgradeLevel',
+    'ec_diamondSieveUpgradeLevel', 'ec_relicScannerUpgradeLevel', 'ec_contractRunnerUpgradeLevel',
+  ].forEach((k) => storageSet(k, '0'));
+
+  queueToast('⭐ Prestige ' + state.prestigeLevel + '! +' + (state.prestigeLevel * 10) + '% Gold, permanently.');
 }
 
 // Diamond IAP packs — inert scaffold, same pattern as the Season Pass
@@ -1520,13 +1608,25 @@ const PASS_TIER_XP_REQUIRED = (() => {
 // to, not guessed at here. The field exists so claimPassPremiumTier() and
 // the render logic below have something concrete to check for, so wiring
 // real content later is a data change, not a logic change.
+// skinByTier grants a Base Skin free at two mid-season milestones — real
+// variety instead of every non-Trail tier being Gold, reusing the exact
+// same unlockedBaseSkins-push mechanism BASE_SKIN_DEFS purchases already
+// use (see claimPassTier() below), just triggered by Pass progress instead
+// of Diamonds.
 const PASS_REWARDS = (() => {
   const trailByTier = {};
   TRAIL_DEFS.forEach((t) => { if (t.passTier !== undefined) trailByTier[t.passTier] = t; });
+  const skinByTier = { 10: 'verdant', 20: 'royal' };
   const rewards = [];
   for (let tier = 1; tier <= PASS_TIER_COUNT; tier++) {
     if (trailByTier[tier]) {
       rewards.push({ tier, type: 'trail', trailId: trailByTier[tier].id, label: trailByTier[tier].name, premiumReward: null });
+    } else if (skinByTier[tier]) {
+      const skin = BASE_SKIN_DEFS.find((s) => s.id === skinByTier[tier]);
+      rewards.push({ tier, type: 'base_skin', skinId: skin.id, label: skin.name, premiumReward: null });
+    } else if (tier % 3 === 0) {
+      const amount = 4 + Math.floor(tier / 3);
+      rewards.push({ tier, type: 'diamonds', amount, label: amount + ' 💎', premiumReward: null });
     } else {
       const amount = 30 + tier * 8;
       rewards.push({ tier, type: 'gold', amount, label: amount + ' Gold', premiumReward: null });
@@ -1637,6 +1737,12 @@ function claimPassTier(tier) {
   } else if (reward.type === 'trail' && !state.unlockedTrails.includes(reward.trailId)) {
     state.unlockedTrails.push(reward.trailId);
     storageSet('ec_unlockedTrails', JSON.stringify(state.unlockedTrails));
+  } else if (reward.type === 'diamonds') {
+    state.diamonds += reward.amount;
+    storageSet('ec_diamonds', String(state.diamonds));
+  } else if (reward.type === 'base_skin' && !state.unlockedBaseSkins.includes(reward.skinId)) {
+    state.unlockedBaseSkins.push(reward.skinId);
+    storageSet('ec_unlockedBaseSkins', JSON.stringify(state.unlockedBaseSkins));
   }
   state.passClaimedTiers.push(tier);
   storageSet('ec_passClaimedTiers', JSON.stringify(state.passClaimedTiers));
@@ -2067,6 +2173,14 @@ const offlineRigUpgradeDescEl = document.getElementById('offline-rig-upgrade-des
 const offlineRigUpgradeBtn = document.getElementById('offline-rig-upgrade-btn');
 const diamondSieveUpgradeDescEl = document.getElementById('diamond-sieve-upgrade-desc');
 const diamondSieveUpgradeBtn = document.getElementById('diamond-sieve-upgrade-btn');
+const relicScannerUpgradeDescEl = document.getElementById('relic-scanner-upgrade-desc');
+const relicScannerUpgradeBtn = document.getElementById('relic-scanner-upgrade-btn');
+const contractRunnerUpgradeDescEl = document.getElementById('contract-runner-upgrade-desc');
+const contractRunnerUpgradeBtn = document.getElementById('contract-runner-upgrade-btn');
+const prestigeLevelLabelEl = document.getElementById('prestige-level-label');
+const prestigeDescEl = document.getElementById('prestige-desc');
+const prestigeBtn = document.getElementById('prestige-btn');
+const startLeaderboardBtn = document.getElementById('start-leaderboard-btn');
 const baseWatchAdDiamondBtn = document.getElementById('base-watch-ad-diamond-btn');
 const baseSkinListEl = document.getElementById('base-skin-list');
 const trailListEl = document.getElementById('trail-list');
@@ -2237,6 +2351,29 @@ async function authenticateGameCenter() {
     if (gameCenterAuthenticated) checkAndReportGameCenterAchievements(); // catches anything already earned before auth completed (e.g. a returning player who already cleared a threshold pre-Game-Center)
   } catch (e) {
     gameCenterAuthenticated = false;
+  }
+}
+
+// showLeaderboard() on the native side (GameCenterPlugin.swift) already
+// exists and presents Apple's own GKGameCenterViewController — this is the
+// real, genuinely global (cross-device, via Apple ID) leaderboard the game
+// already submits scores to at endGame(); nothing on the JS side called it
+// until now. Lazily authenticates first, since the menu's Leaderboard
+// button can be tapped before any run has ever started (the only other
+// authenticateGameCenter() call site is startGame()).
+async function openGameCenterLeaderboard() {
+  if (!isNativeMobile) return;
+  const plugin = getGameCenterPlugin();
+  if (!plugin) return;
+  if (!gameCenterAuthenticated) await authenticateGameCenter();
+  if (!gameCenterAuthenticated) {
+    queueToast('Game Center unavailable');
+    return;
+  }
+  try {
+    await plugin.showLeaderboard();
+  } catch (e) {
+    // best-effort — never blocks the menu
   }
 }
 
@@ -2435,7 +2572,10 @@ function updateStartScreenHud() {
 
   const baseHasClaimable =
     (state.offlineRigUpgradeLevel < OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamonds >= OFFLINE_RIG_UPGRADE_COSTS[state.offlineRigUpgradeLevel]) ||
-    (state.diamondSieveUpgradeLevel < DIAMOND_SIEVE_UPGRADE_MAX_LEVEL && state.diamonds >= DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel]);
+    (state.diamondSieveUpgradeLevel < DIAMOND_SIEVE_UPGRADE_MAX_LEVEL && state.diamonds >= DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel]) ||
+    (state.relicScannerUpgradeLevel < RELIC_SCANNER_UPGRADE_MAX_LEVEL && state.diamonds >= RELIC_SCANNER_UPGRADE_COSTS[state.relicScannerUpgradeLevel]) ||
+    (state.contractRunnerUpgradeLevel < CONTRACT_RUNNER_UPGRADE_MAX_LEVEL && state.diamonds >= CONTRACT_RUNNER_UPGRADE_COSTS[state.contractRunnerUpgradeLevel]) ||
+    isPrestigeEligible();
   baseClaimBadgeEl.classList.toggle('hidden', !baseHasClaimable);
 
   // Deliberately no scene-photo background here (tried it, reverted) — a
@@ -2444,8 +2584,10 @@ function updateStartScreenHud() {
   // family" as its neighbors. The Base screen itself is where the scene
   // payoff belongs; this button just needs to look pressable and show
   // progress via text.
-  const baseCombinedLevel = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel;
-  const BASE_COMBINED_LEVEL_MAX = OFFLINE_RIG_UPGRADE_MAX_LEVEL + DIAMOND_SIEVE_UPGRADE_MAX_LEVEL;
+  const baseCombinedLevel = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel +
+    state.relicScannerUpgradeLevel + state.contractRunnerUpgradeLevel;
+  const BASE_COMBINED_LEVEL_MAX = OFFLINE_RIG_UPGRADE_MAX_LEVEL + DIAMOND_SIEVE_UPGRADE_MAX_LEVEL +
+    RELIC_SCANNER_UPGRADE_MAX_LEVEL + CONTRACT_RUNNER_UPGRADE_MAX_LEVEL;
   startBaseProgressEl.textContent = 'Lv ' + baseCombinedLevel + '/' + BASE_COMBINED_LEVEL_MAX;
 }
 
@@ -2501,7 +2643,7 @@ const ACHIEVEMENT_DEFS = [
   { id: 'depth_3000', icon: '🏔️', name: 'Core Breaker', desc: 'Reach 3000m depth', check: () => state.bestDepthEver >= 3000 },
   { id: 'gold_1000', icon: '💰', name: 'Gold Collector', desc: 'Earn 1,000 lifetime Gold', check: () => state.lifetimeGoldEarned >= 1000 },
   { id: 'gold_10000', icon: '💎', name: 'Gold Baron', desc: 'Earn 10,000 lifetime Gold', check: () => state.lifetimeGoldEarned >= 10000 },
-  { id: 'relics_all', icon: '🏺', name: 'Museum Curator', desc: 'Collect all 5 Relics', check: () => state.relicsFound.length >= 5 },
+  { id: 'relics_all', icon: '🏺', name: 'Museum Curator', desc: `Collect all ${RELIC_DEFS.length} Relics`, check: () => state.relicsFound.length >= RELIC_DEFS.length },
   { id: 'contracts_20', icon: '📋', name: 'Contractor', desc: 'Complete 20 Daily Contracts', check: () => state.contractsCompletedLifetime >= 20 },
   { id: 'streak_7', icon: '🔥', name: 'Dedicated', desc: 'Reach a 7-day login streak', check: () => state.loginStreak >= 7 },
   { id: 'base_maxed', icon: '🏰', name: 'Master Builder', desc: 'Max both Base upgrades', check: () => state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL },
@@ -2657,6 +2799,22 @@ document.getElementById('diamond-sieve-upgrade-btn').addEventListener('click', (
   buyDiamondSieveUpgrade();
   renderBaseScreen();
 });
+document.getElementById('relic-scanner-upgrade-btn').addEventListener('click', () => {
+  buyRelicScannerUpgrade();
+  renderBaseScreen();
+});
+document.getElementById('contract-runner-upgrade-btn').addEventListener('click', () => {
+  buyContractRunnerUpgrade();
+  renderBaseScreen();
+});
+prestigeBtn.addEventListener('click', () => {
+  if (!isPrestigeEligible()) return;
+  if (!window.confirm('Reset Gold, Diamonds, and every Tech Tree/Base upgrade for a permanent +10% Gold bonus?')) return;
+  doPrestige();
+  renderBaseScreen();
+  updateStartScreenHud();
+});
+startLeaderboardBtn.addEventListener('click', openGameCenterLeaderboard);
 baseWatchAdDiamondBtn.addEventListener('click', watchAdBonusDiamond);
 
 function openBaseScreen() {
@@ -2686,10 +2844,15 @@ function renderBaseUpgradeCard(descEl, btnEl, level, maxLevel, costs, currentLab
 // visibly changes the scene, not just numbers on cards — combined level
 // across both upgrades (0-10 total) buckets into 4 tiers.
 function getBaseSceneTier() {
-  const combined = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel;
+  // Thresholds scaled up from the original 2-upgrade/10-max version (now 4
+  // upgrades / 20 max) by the same ~30%/70% breakpoints, so the visual
+  // pacing across the 4 scene tiers stays proportionally the same as before
+  // Relic Scanner/Contract Runner existed.
+  const combined = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel +
+    state.relicScannerUpgradeLevel + state.contractRunnerUpgradeLevel;
   if (combined <= 0) return 0;
-  if (combined <= 3) return 1;
-  if (combined <= 7) return 2;
+  if (combined <= 6) return 1;
+  if (combined <= 14) return 2;
   return 3;
 }
 
@@ -2738,6 +2901,32 @@ function renderBaseScreen() {
     state.diamondSieveUpgradeLevel, DIAMOND_SIEVE_UPGRADE_MAX_LEVEL, DIAMOND_SIEVE_UPGRADE_COSTS,
     'Diamond Find Rate ' + sieveNow + 'x', 'Diamond Find Rate ' + sieveNext + 'x'
   );
+
+  const scannerNow = (1 + state.relicScannerUpgradeLevel * RELIC_CHANCE_BONUS_PER_LEVEL).toFixed(2);
+  const scannerNext = (1 + (state.relicScannerUpgradeLevel + 1) * RELIC_CHANCE_BONUS_PER_LEVEL).toFixed(2);
+  renderBaseUpgradeCard(
+    relicScannerUpgradeDescEl, relicScannerUpgradeBtn,
+    state.relicScannerUpgradeLevel, RELIC_SCANNER_UPGRADE_MAX_LEVEL, RELIC_SCANNER_UPGRADE_COSTS,
+    'Relic Find Rate ' + scannerNow + 'x', 'Relic Find Rate ' + scannerNext + 'x'
+  );
+
+  const runnerNow = getContractGoldMultiplier().toFixed(2);
+  const runnerNext = (1 + (state.contractRunnerUpgradeLevel + 1) * 0.15).toFixed(2);
+  renderBaseUpgradeCard(
+    contractRunnerUpgradeDescEl, contractRunnerUpgradeBtn,
+    state.contractRunnerUpgradeLevel, CONTRACT_RUNNER_UPGRADE_MAX_LEVEL, CONTRACT_RUNNER_UPGRADE_COSTS,
+    'Contract Gold ' + runnerNow + 'x', 'Contract Gold ' + runnerNext + 'x'
+  );
+
+  prestigeLevelLabelEl.textContent = 'Prestige Level ' + state.prestigeLevel;
+  prestigeDescEl.textContent = '+' + (state.prestigeLevel * 10) + '% Gold, permanently';
+  if (isPrestigeEligible()) {
+    prestigeBtn.textContent = 'Prestige Now';
+    prestigeBtn.disabled = false;
+  } else {
+    prestigeBtn.textContent = 'Max everything first';
+    prestigeBtn.disabled = true;
+  }
 }
 
 // Same map-to-innerHTML-then-rewire shape as renderTrailsScreen(), reusing
@@ -3087,8 +3276,9 @@ function renderPassScreen() {
   passTierListEl.innerHTML = PASS_REWARDS.map((reward) => {
     const claimed = state.passClaimedTiers.includes(reward.tier);
     const reached = currentTier >= reward.tier;
-    const swatch = reward.type === 'trail'
-      ? (TRAIL_DEFS.find((t) => t.id === reward.trailId).color(BIOMES[0]))
+    const swatch = reward.type === 'trail' ? TRAIL_DEFS.find((t) => t.id === reward.trailId).color(BIOMES[0])
+      : reward.type === 'base_skin' ? BASE_SKIN_DEFS.find((s) => s.id === reward.skinId).swatch
+      : reward.type === 'diamonds' ? '#4fd8ff'
       : '#ffd700';
 
     let actionHtml;
@@ -3187,8 +3377,17 @@ function showNextToast() {
   }, TOAST_VISIBLE_MS);
 }
 
+// Prestige's permanent +10%/level Gold bonus is applied here — the single
+// choke point every Gold gain in the game already flows through (run-end
+// banking, Contract bonuses, Pass claims, Welcome Back), so this is the one
+// place a global multiplier needs to exist rather than scattering it across
+// every call site.
+function getPrestigeGoldMultiplier() {
+  return 1 + state.prestigeLevel * 0.10;
+}
+
 function syncBankedGold(extra) {
-  const amount = Math.floor(extra);
+  const amount = Math.floor(extra * getPrestigeGoldMultiplier());
   state.bankedGold += amount;
   storageSet('ec_bankedGold', String(state.bankedGold));
   if (amount > 0) {
@@ -3665,11 +3864,12 @@ function updateContractProgress() {
 
     goal.completedToday = true;
     saveDailyContracts();
-    state.pendingContractGold += goal.bonusGold;
+    const boostedGold = Math.round(goal.bonusGold * getContractGoldMultiplier());
+    state.pendingContractGold += boostedGold;
     awardPassXp(PASS_XP_PER_CONTRACT);
     state.contractsCompletedLifetime += 1;
     storageSet('ec_contractsCompletedLifetime', String(state.contractsCompletedLifetime));
-    queueToast('Contract Complete! ' + template.label(goal.target) + ' (+' + goal.bonusGold + ' Gold)');
+    queueToast('Contract Complete! ' + template.label(goal.target) + ' (+' + boostedGold + ' Gold)');
   }
 }
 

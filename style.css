@@ -766,6 +766,15 @@ body.paused #gameCanvas {
   gap: 10px;
 }
 
+/* .menu-base-btn's justify-content:space-between was tuned for My Base's
+   label+progress pair — with a single plain-text child (Leaderboard has no
+   second element to space against), space-between collapses to flex-start,
+   sitting the text off to the left instead of centered like every other
+   single-content button. */
+.overlay #start-leaderboard-btn {
+  justify-content: center;
+}
+
 .menu-base-btn-label {
   font-size: 15px;
 }

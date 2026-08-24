@@ -86,9 +86,10 @@
       <button id="start-trails-btn" class="menu-secondary-btn">✨ Trails</button>
       <button id="start-base-btn" class="menu-secondary-btn menu-base-btn">
         <span class="menu-base-btn-label">🏰 My Base</span>
-        <span id="start-base-progress" class="menu-base-btn-progress">Lv 0/10</span>
+        <span id="start-base-progress" class="menu-base-btn-progress">Lv 0/20</span>
         <span id="base-claim-badge" class="claim-badge hidden"></span>
       </button>
+      <button id="start-leaderboard-btn" class="menu-secondary-btn menu-base-btn">🏆 Leaderboard</button>
     </div>
   </div>
 
@@ -191,8 +192,28 @@
       <button id="diamond-sieve-upgrade-btn">Upgrade — 5 💎</button>
     </div>
 
+    <div class="upgrade-card">
+      <div class="upgrade-name">Relic Scanner</div>
+      <div class="upgrade-desc" id="relic-scanner-upgrade-desc">Level 0/5 — Relic Find Rate 1.00x</div>
+      <button id="relic-scanner-upgrade-btn">Upgrade — 8 💎</button>
+    </div>
+
+    <div class="upgrade-card">
+      <div class="upgrade-name">Contract Runner</div>
+      <div class="upgrade-desc" id="contract-runner-upgrade-desc">Level 0/5 — Contract Gold 1.00x</div>
+      <button id="contract-runner-upgrade-btn">Upgrade — 6 💎</button>
+    </div>
+
     <h1 class="base-skins-heading">CAMP SKINS</h1>
     <div class="trail-list" id="base-skin-list"></div>
+
+    <h1 class="base-skins-heading">PRESTIGE</h1>
+    <p class="hint">Max every upgrade above to reset your economy for a permanent Gold bonus.</p>
+    <div class="upgrade-card">
+      <div class="upgrade-name" id="prestige-level-label">Prestige Level 0</div>
+      <div class="upgrade-desc" id="prestige-desc">+0% Gold, permanently</div>
+      <button id="prestige-btn" disabled>Max everything first</button>
+    </div>
 
     <button id="close-base-btn">Close</button>
   </div>
