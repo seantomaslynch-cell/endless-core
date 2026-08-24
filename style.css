@@ -404,6 +404,14 @@ body.paused #gameCanvas {
      background-position (not transform) deliberately, so it only moves the
      paint, never the title/buttons stacked as normal children on top of it. */
   animation: startBgDrift 22s ease-in-out infinite;
+  /* #start-hud is absolutely positioned (out of flow) in the top-left, so
+     it never pushes this flex column's content down on its own — on a
+     short viewport, justify-content:center centers everything (including
+     the title) in the FULL height, which can push the title up into the
+     HUD's fixed spot regardless of how small the HUD is. Reserving real
+     top padding guarantees clearance on any screen height, rather than
+     depending on exactly how tall the HUD happens to be. */
+  padding-top: 96px;
 }
 
 @keyframes startBgDrift {
@@ -490,21 +498,30 @@ body.paused #gameCanvas {
    to see what they had. */
 #start-hud {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  left: calc(12px + env(safe-area-inset-left));
+  top: calc(10px + env(safe-area-inset-top));
+  left: calc(10px + env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   z-index: 2;
   pointer-events: none;
+}
+
+/* Gold + Diamond side by side rather than stacked — with a Streak pill
+   added below this row, three fully-stacked pills grew tall enough to
+   overlap the centered title text on shorter screens. Two rows fits
+   comfortably above the title everywhere the old two-pill layout did. */
+#start-currency-row {
+  display: flex;
+  gap: 5px;
 }
 
 #start-gold-pill, #start-diamond-pill, #start-streak-pill {
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 215, 0, 0.4);
-  border-radius: 20px;
-  padding: 6px 14px;
-  font-size: 14px;
+  border-radius: 16px;
+  padding: 4px 10px;
+  font-size: 12px;
   font-weight: bold;
   color: #ffd700;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
