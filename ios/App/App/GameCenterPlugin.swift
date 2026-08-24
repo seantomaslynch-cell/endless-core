@@ -114,10 +114,10 @@ public class GameCenterPlugin: CAPPlugin {
     }
 }
 
-// GKGameCenterViewControllerDelegate needs a live delegate reference for the
+// GKGameCenterControllerDelegate needs a live delegate reference for the
 // lifetime of the presented controller; a tiny shared singleton is enough
 // since only one Game Center sheet is ever presented at a time here.
-class GameCenterDismisser: NSObject, GKGameCenterViewControllerDelegate {
+class GameCenterDismisser: NSObject, GKGameCenterControllerDelegate {
     static let shared = GameCenterDismisser()
     func gameCenterViewControllerDidFinish(_ gameCenterViewController: GKGameCenterViewController) {
         gameCenterViewController.dismiss(animated: true)
