@@ -102,6 +102,22 @@
     <button id="welcome-back-btn">Collect</button>
   </div>
 
+  <!-- First-run tutorial — shown once ever, stacked over the Start Screen
+       the very first time the game loads (mutually exclusive with Welcome
+       Back, which only shows on a RETURN visit). -->
+  <div id="tutorial-screen" class="overlay hidden">
+    <h1>HOW TO PLAY</h1>
+    <p class="hint">Everything you need to know before your first drop.</p>
+    <div class="tutorial-list">
+      <p>👆 Hold LEFT or RIGHT side of the screen to steer</p>
+      <p>🪙 Grab Gold and 💎 rare Diamonds as you drill</p>
+      <p>⚠️ Avoid Stone and ☠️ Gas — they damage your drill</p>
+      <p>📦 Chests grant temporary power-ups</p>
+      <p>🏺 Rare Relics unlock rewards in the Museum</p>
+    </div>
+    <button id="tutorial-close-btn" class="menu-primary-btn">Got It!</button>
+  </div>
+
   <!-- Game Over Screen -->
   <div id="gameover-screen" class="overlay hidden">
     <h1>DRILL DESTROYED</h1>

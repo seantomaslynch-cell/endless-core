@@ -1132,6 +1132,7 @@ const state = {
   diamondSieveUpgradeLevel: parseInt(storageGet('ec_diamondSieveUpgradeLevel') || '0', 10),
   unlockedBaseSkins: loadUnlockedBaseSkins(), // array of owned BASE_SKIN_DEFS ids, persisted
   selectedBaseSkin: loadSelectedBaseSkin(), // BASE_SKIN_DEFS id, persisted
+  hasSeenTutorial: storageGet('ec_hasSeenTutorial') === 'true',
   maxDepthReached: 0,
   startTime: 0,
   comboMultiplier: 1.0,
@@ -2026,6 +2027,7 @@ const settingsScreen = document.getElementById('settings-screen');
 const achievementsScreen = document.getElementById('achievements-screen');
 const baseScreen = document.getElementById('base-screen');
 const welcomeBackScreen = document.getElementById('welcome-back-screen');
+const tutorialScreen = document.getElementById('tutorial-screen');
 const toastEl = document.getElementById('toast');
 const pauseOverlay = document.getElementById('pause-overlay');
 const pauseBtn = document.getElementById('pause-btn');
@@ -3602,6 +3604,7 @@ function collectRelic(worldX, worldY) {
   triggerScreenShake(6, 0.15);
   playSound('relic');
   vibrateHaptic(30);
+  queueToast('🏺 Relic Found! Check the Museum.'); // previously zero textual explanation of what was just picked up — particles/shake/sound only
 }
 
 function updateDrillFall(dt) {
@@ -4455,6 +4458,20 @@ document.getElementById('welcome-back-btn').addEventListener('click', () => {
   updateStartScreenHud(); // the Gold pill needs to reflect what was just collected
 });
 
+// Shown once ever, stacked over the Start Screen — mutually exclusive with
+// Welcome Back in practice, since a brand new player has no offline time to
+// have earned anything from yet.
+function maybeShowTutorial() {
+  if (state.hasSeenTutorial) return;
+  tutorialScreen.classList.remove('hidden');
+}
+
+document.getElementById('tutorial-close-btn').addEventListener('click', () => {
+  state.hasSeenTutorial = true;
+  storageSet('ec_hasSeenTutorial', 'true');
+  tutorialScreen.classList.add('hidden');
+});
+
 // Mirrors watchAdDoubleGold() (Game Over screen) exactly — same one-shot,
 // stays-disabled-after-success shape, reusing the already-integrated AdMob
 // rewarded flow rather than adding any new ad surface.
@@ -4540,6 +4557,7 @@ ensureRowsGenerated(20);
 render();
 
 checkOfflineEarnings();
+maybeShowTutorial();
 checkLoginStreak();
 updateStartScreenHud();
 applyAudioMutePreference(); // apply a persisted mute preference immediately, before the player ever opens Settings

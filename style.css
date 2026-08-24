@@ -549,6 +549,26 @@ body.paused #gameCanvas {
   margin-bottom: 8px;
 }
 
+.tutorial-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 300px;
+  text-align: left;
+  margin: 6px 0 4px;
+}
+
+.tutorial-list p {
+  font-size: 14px;
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 10px 12px;
+  line-height: 1.4;
+}
+
 /* Every overlay button shares this "glossy" build by default: a soft
    white highlight over the base color (light catching a curved glass
    surface), an inset top-highlight/bottom-shadow for physical depth, and a
