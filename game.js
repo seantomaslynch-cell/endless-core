@@ -2428,12 +2428,15 @@ function updateStartScreenHud() {
     (state.diamondSieveUpgradeLevel < DIAMOND_SIEVE_UPGRADE_MAX_LEVEL && state.diamonds >= DIAMOND_SIEVE_UPGRADE_COSTS[state.diamondSieveUpgradeLevel]);
   baseClaimBadgeEl.classList.toggle('hidden', !baseHasClaimable);
 
+  // Deliberately no scene-photo background here (tried it, reverted) — a
+  // dark scrim over the low tiers' mostly-empty/dark scenes read as a
+  // broken/disabled button rather than "part of the same bronze button
+  // family" as its neighbors. The Base screen itself is where the scene
+  // payoff belongs; this button just needs to look pressable and show
+  // progress via text.
   const baseCombinedLevel = state.offlineRigUpgradeLevel + state.diamondSieveUpgradeLevel;
   const BASE_COMBINED_LEVEL_MAX = OFFLINE_RIG_UPGRADE_MAX_LEVEL + DIAMOND_SIEVE_UPGRADE_MAX_LEVEL;
   startBaseProgressEl.textContent = 'Lv ' + baseCombinedLevel + '/' + BASE_COMBINED_LEVEL_MAX;
-  startBaseBtn.style.backgroundImage =
-    'linear-gradient(90deg, rgba(6, 5, 9, 0.72) 0%, rgba(6, 5, 9, 0.35) 55%, rgba(6, 5, 9, 0.72) 100%), ' +
-    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")';
 }
 
 // ---------- Settings overlay ----------

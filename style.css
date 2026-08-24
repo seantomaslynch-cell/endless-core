@@ -646,14 +646,6 @@ body.paused #gameCanvas {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  /* A cropped preview of the Base's current scene tier (base-scene-tier0..3
-     .jpg, same images/logic as the Base screen itself — see
-     updateStartScreenHud() for the tier lookup and the assigned url()), so
-     progress is visible without opening the screen. background-size:cover
-     framed toward the bottom of the source image, where the actual camp/
-     rig detail sits (the top of those images is mostly empty sky/cave). */
-  background-size: cover;
-  background-position: center 80%;
 }
 
 .menu-base-btn-label {
