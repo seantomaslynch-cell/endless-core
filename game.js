@@ -2494,6 +2494,8 @@ const ACHIEVEMENT_DEFS = [
   { id: 'relics_all', icon: '🏺', name: 'Museum Curator', desc: 'Collect all 5 Relics', check: () => state.relicsFound.length >= 5 },
   { id: 'contracts_20', icon: '📋', name: 'Contractor', desc: 'Complete 20 Daily Contracts', check: () => state.contractsCompletedLifetime >= 20 },
   { id: 'streak_7', icon: '🔥', name: 'Dedicated', desc: 'Reach a 7-day login streak', check: () => state.loginStreak >= 7 },
+  { id: 'base_maxed', icon: '🏰', name: 'Master Builder', desc: 'Max both Base upgrades', check: () => state.offlineRigUpgradeLevel >= OFFLINE_RIG_UPGRADE_MAX_LEVEL && state.diamondSieveUpgradeLevel >= DIAMOND_SIEVE_UPGRADE_MAX_LEVEL },
+  { id: 'base_skins_all', icon: '🎨', name: 'Interior Decorator', desc: 'Unlock every Camp Skin', check: () => state.unlockedBaseSkins.length >= BASE_SKIN_DEFS.length },
 ];
 
 // Reports any newly-true achievement to Game Center exactly once (tracked via
@@ -2681,6 +2683,12 @@ function getBaseSceneTier() {
   return 3;
 }
 
+// Seeded from the real tier at load time (not null/0), so opening the Base
+// screen fresh — including right after a previous session's upgrade — never
+// fires a false "leveled up" toast; only an actual tier increase during
+// this session does. renderBaseScreen() re-checks this after every buy.
+let lastSeenBaseTier = getBaseSceneTier();
+
 function renderBaseScreen() {
   baseDiamondAmountEl.textContent = state.diamonds;
 
@@ -2691,12 +2699,18 @@ function renderBaseScreen() {
   // icons, etc.) sitting on top of it, and CSS filter always applies to an
   // element's whole rendered subtree, so it has to live on an isolated
   // pseudo-element layer instead.
+  const currentTier = getBaseSceneTier();
   baseScreen.style.setProperty(
     '--base-scene-bg',
     'linear-gradient(180deg, rgba(8, 6, 16, 0.25) 0%, rgba(8, 6, 16, 0.55) 55%, rgba(5, 4, 10, 0.94) 100%), ' +
-    'url("base-scene-tier' + getBaseSceneTier() + '.jpg")'
+    'url("base-scene-tier' + currentTier + '.jpg")'
   );
   baseScreen.style.setProperty('--base-skin-filter', getBaseSkinFilter());
+
+  if (currentTier > lastSeenBaseTier) {
+    queueToast('🏰 Your Base looks better!');
+  }
+  lastSeenBaseTier = currentTier;
 
   renderBaseSkinsList();
 
