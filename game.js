@@ -3701,26 +3701,28 @@ function createTileTexture(baseColorHex, seed, isStone) {
   tctx.fillStyle = baseColorHex;
   tctx.fillRect(0, 0, BLOCK, BLOCK);
 
-  const grad = tctx.createLinearGradient(0, 0, BLOCK, BLOCK);
-  grad.addColorStop(0, 'rgba(255,255,255,0.12)');
-  grad.addColorStop(0.5, 'rgba(255,255,255,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.18)');
-  tctx.fillStyle = grad;
-  tctx.fillRect(0, 0, BLOCK, BLOCK);
-
-  // Deterministic per-seed noise speckle (stable across regenerations —
-  // same seed always draws the same texture, so it's safe to cache).
+  // Blocky pixel-grid noise instead of a smooth diagonal gradient sheen +
+  // soft circular speckle — Minecraft's whole texture identity is visible
+  // square pixels of varying shade, not a painterly blur. Deterministic
+  // per-seed (stable across regenerations — same seed always draws the
+  // same texture, so it's safe to cache).
   let s = seed;
   const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
-  const speckleCount = 6 + Math.floor(rand() * 5);
-  for (let i = 0; i < speckleCount; i++) {
-    const x = rand() * BLOCK;
-    const y = rand() * BLOCK;
-    const rad = 1 + rand() * 1.8;
-    tctx.fillStyle = rand() < 0.5 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.14)';
-    tctx.beginPath();
-    tctx.arc(x, y, rad, 0, Math.PI * 2);
-    tctx.fill();
+  const GRID = 6;
+  const cellSize = BLOCK / GRID;
+  for (let gy = 0; gy < GRID; gy++) {
+    for (let gx = 0; gx < GRID; gx++) {
+      const roll = rand();
+      if (roll < 0.32) {
+        tctx.fillStyle = 'rgba(0,0,0,' + (0.10 + rand() * 0.16) + ')';
+        tctx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
+      } else if (roll > 0.82) {
+        tctx.fillStyle = 'rgba(255,255,255,' + (0.08 + rand() * 0.14) + ')';
+        tctx.fillRect(gx * cellSize, gy * cellSize, cellSize, cellSize);
+      }
+      // else: most cells stay plain base color — Minecraft textures are
+      // mostly-flat with scattered fleck pixels, not noise everywhere
+    }
   }
 
   // Stone gets a jagged crack line for a genuine rock feel — dirt doesn't
@@ -3780,34 +3782,74 @@ function getTileTexture(type, biome, variantIndex) {
 // Gold stays a live per-cell draw (not pre-rendered) since it's rare enough
 // that the extra per-cell gradient cost is negligible, and the pulsing
 // shine needs performance.now() at draw time anyway.
-function drawGoldBlock(screenX, screenY, nowMs) {
+// Shared "ore embedded in stone" renderer for Gold/Diamond — a textured
+// stone-gray base with a small deterministic cluster of colored nugget
+// pixels, echoing Minecraft's actual ore-block language (ore = stone with
+// embedded mineral flecks, not a solid glowing gem/orb, which is what this
+// used to be). Position-seeded, not cached — the nugget layout is stable
+// per-cell without needing a whole texture-cache entry per ore type. Keeps
+// a toned-down pulsing glow as a gameplay affordance ("worth grabbing")
+// that a plain Minecraft ore block wouldn't have, since this game is read
+// at speed while drilling, not explored slowly.
+function drawOreBlock(screenX, screenY, nowMs, nuggetColors, glowColor) {
   const cx = screenX + BLOCK / 2;
   const cy = screenY + BLOCK / 2;
   const pulse = 0.5 + 0.5 * Math.sin(nowMs / 300);
 
-  const grad = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, BLOCK * 0.65);
-  grad.addColorStop(0, '#fff9c4');
-  grad.addColorStop(0.45, '#ffd700');
-  grad.addColorStop(1, '#b8860b');
-  ctx.fillStyle = grad;
+  ctx.fillStyle = '#6e6e6e';
   ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  let s = Math.round(screenX) * 7 + Math.round(screenY) * 13 + 11;
+  const rand = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+  const GRID = 6;
+  const cellSize = BLOCK / GRID;
+  for (let gy = 0; gy < GRID; gy++) {
+    for (let gx = 0; gx < GRID; gx++) {
+      const roll = rand();
+      if (roll < 0.28) {
+        ctx.fillStyle = 'rgba(0,0,0,' + (0.10 + rand() * 0.14) + ')';
+        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
+      } else if (roll > 0.88) {
+        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
+      }
+    }
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.22 + pulse * 0.14;
+  const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, BLOCK * 0.6);
+  glow.addColorStop(0, glowColor);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(screenX, screenY, BLOCK, BLOCK);
+  ctx.restore();
+
+  // Nugget cluster kept away from the outer edge cells — reads as an ore
+  // vein embedded in the middle of the block, not scattered to its border.
+  for (let gy = 1; gy < GRID - 1; gy++) {
+    for (let gx = 1; gx < GRID - 1; gx++) {
+      if (rand() < 0.34) {
+        ctx.fillStyle = nuggetColors[Math.floor(rand() * nuggetColors.length)];
+        ctx.fillRect(screenX + gx * cellSize, screenY + gy * cellSize, cellSize, cellSize);
+      }
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
   ctx.lineWidth = 1;
   ctx.strokeRect(screenX + 0.5, screenY + 0.5, BLOCK - 1, BLOCK - 1);
+}
 
-  // Primary shine (pulses) plus a small fixed secondary glint — one moving
-  // highlight alone reads as flat plastic; two fixed points of light (one
-  // animated, one static) is what actually sells "polished metal."
-  ctx.fillStyle = `rgba(255,255,255,${0.5 + pulse * 0.3})`;
-  ctx.beginPath();
-  ctx.arc(cx - 5, cy - 5, 4, 0, Math.PI * 2);
-  ctx.fill();
+function drawGoldBlock(screenX, screenY, nowMs) {
+  drawOreBlock(screenX, screenY, nowMs, ['#ffd700', '#fff59d', '#e6b800'], 'rgba(255,215,0,0.5)');
+}
 
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.beginPath();
-  ctx.arc(cx + 7, cy + 6, 1.8, 0, Math.PI * 2);
-  ctx.fill();
+// DIAMOND previously had no draw case at all in the render loop (spawn and
+// collision logic existed, but nothing ever rendered it — it was invisible
+// in actual gameplay), discovered while making this pass.
+function drawDiamondBlock(screenX, screenY, nowMs) {
+  drawOreBlock(screenX, screenY, nowMs, ['#4fd8ff', '#b3f0ff', '#00b8d4'], 'rgba(79,216,255,0.5)');
 }
 
 // Reads as an actual supply crate, not a decorative stripe pattern — the
@@ -3987,6 +4029,10 @@ function render() {
       }
       if (type === GOLD) {
         drawGoldBlock(screenX, screenY, performance.now());
+        continue;
+      }
+      if (type === DIAMOND) {
+        drawDiamondBlock(screenX, screenY, performance.now());
         continue;
       }
       if (type === DIRT || type === STONE) {
