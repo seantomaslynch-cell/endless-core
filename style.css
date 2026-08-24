@@ -280,12 +280,22 @@ body.paused #gameCanvas {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(10, 10, 15, 0.92);
+  background: rgba(10, 10, 15, 1);
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* flex-start + overflow-y:auto, not center: on short viewports (iPhone
+     SE/8-height devices) overlay content can exceed the screen height, and
+     justify-content:center + overflow:visible has no way to reach the
+     clipped bottom (body has overflow:hidden/touch-action:none — there's no
+     page-level scroll to fall back on). Without this, a tall overlay's own
+     Close button can be pushed off-screen with literally no way back out.
+     touch-action:pan-y re-enables vertical touch-scroll here specifically,
+     since it's blocked globally for the drilling drag controls. */
+  justify-content: flex-start;
+  overflow-y: auto;
+  touch-action: pan-y;
   gap: 12px;
   text-align: center;
   padding: 20px;
@@ -442,6 +452,14 @@ body.paused #gameCanvas {
      top padding guarantees clearance on any screen height, rather than
      depending on exactly how tall the HUD happens to be. */
   padding-top: 96px;
+  /* On short viewports (iPhone SE/8-height devices) the menu button grid
+     is now taller than the screen (Leaderboard row pushed it over) — same
+     overflow + justify-content:flex-start + touch-action:pan-y fix already
+     used on #base-screen, so the bottom buttons stay reachable instead of
+     being silently clipped by body's overflow:hidden/touch-action:none. */
+  overflow-y: auto;
+  touch-action: pan-y;
+  justify-content: flex-start;
 }
 
 @keyframes startBgDrift {
