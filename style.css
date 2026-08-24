@@ -840,6 +840,16 @@ body.paused #gameCanvas {
   border-radius: 12px;
   padding: 14px 16px;
   margin-top: 4px;
+  /* #base-screen's hero art is a fixed (non-scrolling) backdrop, so as the
+     card list grows taller, more cards inevitably scroll through its busiest
+     part (tent/drill/crate shapes) — under the Camp Skins' saturated hue-
+     rotate filters those hard edges read as ugly, illegible artifacts right
+     behind card text (confirmed on Frost: the crates' grid pattern turned
+     into harsh neon-blue squares stacked under "Diamond Sieve"). A real
+     frosted-glass blur, not just alpha, fixes it at the source regardless of
+     scroll position, skin, or how many cards get added later. */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .upgrade-name {
