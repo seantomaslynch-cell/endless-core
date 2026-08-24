@@ -2001,6 +2001,7 @@ window.addEventListener('keyup', (e) => {
 // ---------- UI elements ----------
 const depthDisplay = document.getElementById('depth-display');
 const goldDisplay = document.getElementById('gold-display');
+const diamondDisplay = document.getElementById('diamond-display');
 const scoreDisplay = document.getElementById('score-display');
 const comboDisplay = document.getElementById('combo-display');
 const biomeDisplay = document.getElementById('biome-display');
@@ -2037,6 +2038,7 @@ const contractBonusEl = document.getElementById('final-contract-bonus');
 const bankedGoldEl = document.getElementById('banked-gold');
 const startHighscoreEl = document.getElementById('start-highscore');
 const startGoldAmountEl = document.getElementById('start-gold-amount');
+const startDiamondAmountEl = document.getElementById('start-diamond-amount');
 const startStreakPillEl = document.getElementById('start-streak-pill');
 const startStreakAmountEl = document.getElementById('start-streak-amount');
 const passClaimBadgeEl = document.getElementById('pass-claim-badge');
@@ -2411,6 +2413,7 @@ function closeOverlay(screenEl) {
 // to the start screen rather than tracking exactly what might have changed.
 function updateStartScreenHud() {
   startGoldAmountEl.textContent = state.bankedGold;
+  startDiamondAmountEl.textContent = state.diamonds;
 
   if (state.loginStreak >= 2) {
     startStreakPillEl.classList.remove('hidden');
@@ -4081,6 +4084,7 @@ function render() {
   // HUD updates
   depthDisplay.textContent = 'Depth: ' + state.maxDepthReached + 'm';
   goldDisplay.textContent = 'Gold: ' + state.gold;
+  diamondDisplay.textContent = '💎 ' + state.diamondsThisRun;
   scoreDisplay.textContent = 'Score: ' + currentScore();
   comboDisplay.textContent = 'Combo: x' + state.comboMultiplier.toFixed(1);
   biomeDisplay.textContent = 'Zone: ' + currentBiome.name;

@@ -65,12 +65,16 @@ body.paused #gameCanvas {
   z-index: 10;
 }
 
-#depth-display, #gold-display, #score-display, #combo-display {
+#depth-display, #gold-display, #diamond-display, #score-display, #combo-display {
   font-size: 18px;
 }
 
 #gold-display {
   color: #ffd700;
+}
+
+#diamond-display {
+  color: #4fd8ff;
 }
 
 #score-display {
@@ -474,7 +478,7 @@ body.paused #gameCanvas {
   pointer-events: none;
 }
 
-#start-gold-pill, #start-streak-pill {
+#start-gold-pill, #start-diamond-pill, #start-streak-pill {
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid rgba(255, 215, 0, 0.4);
   border-radius: 20px;
@@ -484,6 +488,11 @@ body.paused #gameCanvas {
   color: #ffd700;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
   width: fit-content;
+}
+
+#start-diamond-pill {
+  border-color: rgba(79, 216, 255, 0.5);
+  color: #4fd8ff;
 }
 
 #start-streak-pill {
