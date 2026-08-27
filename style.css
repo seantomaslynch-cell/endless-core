@@ -298,7 +298,14 @@ body.paused #gameCanvas {
   touch-action: pan-y;
   gap: 12px;
   text-align: center;
-  padding: 20px;
+  /* Top padding alone gets env(safe-area-inset-top) added — flat 20px on
+     every side worked fine in browser testing (which reports 0 for the
+     inset unless a notched device is specifically emulated), but on a real
+     Dynamic Island device with a larger reserved area than that, an H1
+     sitting on plain 20px can render crowding right up against/under it.
+     Confirmed on a real iPhone 17 Pro Max — the Trails/Loadout/Supply
+     Cache/Paused titles all sat too close to the island. */
+  padding: calc(20px + env(safe-area-inset-top)) 20px 20px 20px;
   z-index: 20;
 }
 
@@ -451,7 +458,16 @@ body.paused #gameCanvas {
      HUD's fixed spot regardless of how small the HUD is. Reserving real
      top padding guarantees clearance on any screen height, rather than
      depending on exactly how tall the HUD happens to be. */
-  padding-top: 96px;
+  /* env(safe-area-inset-top) added on top of the flat 96px: #start-hud's
+     own position (top: 10px + the same inset) grows on a device with a
+     bigger notch/Dynamic Island reserve than whatever this 96px was
+     measured against, but a flat number here doesn't grow with it — so on
+     a real iPhone 17 Pro Max the Day Streak badge (the taller of the two
+     stacked HUD rows) ended up sitting low enough to overlap "ENDLESS
+     CORE". This keeps the same 96px clearance on a no-inset device (this
+     session's browser testing) while adding real headroom on hardware
+     with a bigger island. */
+  padding-top: calc(96px + env(safe-area-inset-top));
   /* On short viewports (iPhone SE/8-height devices) the menu button grid
      is now taller than the screen (Leaderboard row pushed it over) — same
      overflow + justify-content:flex-start + touch-action:pan-y fix already
