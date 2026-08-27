@@ -2298,7 +2298,7 @@ const ADMOB_INTERSTITIAL_AD_UNIT_ID = isAndroidNative
   ? 'ca-app-pub-5040304268747359/2613811734'
   : 'ca-app-pub-5040304268747359/3571606543';
 const ADMOB_REWARDED_AD_UNIT_ID = isAndroidNative
-  ? 'ca-app-pub-5040304268747359/PENDING_ANDROID_REWARDED_UNIT' // TODO: swap in the real Android Rewarded ad unit ID once it's created in AdMob — the Interstitial one is already live
+  ? 'ca-app-pub-5040304268747359/6417325372'
   : 'ca-app-pub-5040304268747359/8664151129';
 // Rewarded Interstitial ad unit exists in the AdMob account for iOS
 // (ca-app-pub-5040304268747359/7351069456) but isn't wired up — nothing in
