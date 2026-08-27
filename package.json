@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "sync:www": "node -e \"require('fs').mkdirSync('www',{recursive:true});['index.html','style.css','game.js','menu-bg.jpg','base-scene-tier0.jpg','base-scene-tier1.jpg','base-scene-tier2.jpg','base-scene-tier3.jpg'].forEach(f=>require('fs').copyFileSync(f,'www/'+f))\"",
-    "sync:ios": "npm run sync:www && npx cap sync ios"
+    "sync:ios": "npm run sync:www && npx cap sync ios",
+    "sync:android": "npm run sync:www && npx cap sync android",
+    "build:android:debug": "npm run sync:android && bash android/build-debug.sh"
   },
   "repository": {
     "type": "git",
@@ -23,6 +25,7 @@
   "dependencies": {
     "@capacitor-community/admob": "^8.1.0",
     "@capacitor-community/in-app-review": "^8.0.0",
+    "@capacitor/android": "^8.5.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/core": "^8.5.0",
     "@capacitor/haptics": "^8.0.2",

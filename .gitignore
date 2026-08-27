@@ -5,3 +5,15 @@ node_modules/
 # `npm run sync:www`), generated as Capacitor's webDir target — the root
 # copies of those three files stay the single source of truth.
 www/
+
+# Android build artifacts / machine-local files. local.properties holds an
+# absolute SDK path specific to this machine; every dev machine regenerates
+# it (see android/local.properties in build-debug.sh's own instructions).
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/captures/
+android/*.iml
+android/.idea/
+
