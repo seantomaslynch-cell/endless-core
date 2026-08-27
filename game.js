@@ -3,13 +3,18 @@
 // ============================================================
 
 // ---------- Cross-platform bridge ----------
-// This single game.js ships to two hosts: the web build (YouTube Playables,
-// gated by window.ytgame.IN_PLAYABLES_ENV — see the SDK bootstrap section
-// further down) and the Capacitor-wrapped iOS app. isNativeMobile is the one
-// flag that tells the rest of the file which platform bridge is live; every
-// SDK-facing function below branches on it (or on ytgame's own presence,
-// which is simply absent/inert on iOS) rather than assuming either platform.
+// This single game.js ships to three hosts: the web build (YouTube
+// Playables, gated by window.ytgame.IN_PLAYABLES_ENV — see the SDK
+// bootstrap section further down) and the Capacitor-wrapped iOS and Android
+// apps. isNativeMobile is the one flag that tells the rest of the file
+// whether a native platform bridge is live at all (or on ytgame's own
+// presence, which is simply absent/inert on native) rather than assuming
+// any one platform; isAndroidNative further distinguishes Android from iOS
+// for the handful of things that genuinely differ between them (AdMob ad
+// unit IDs — the two are separate apps in the AdMob account with distinct
+// IDs per ad format; Game Center has no Android equivalent wired up yet).
 const isNativeMobile = typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const isAndroidNative = isNativeMobile && !!(window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android');
 
 // ---------- Safe storage wrapper ----------
 // localStorage can throw synchronously (SecurityError) rather than just
@@ -2282,13 +2287,20 @@ const CHEST_POWERUPS = {
 };
 const CHEST_POWERUP_IDS = Object.keys(CHEST_POWERUPS);
 
-// AdMob (native ads on iOS, via @capacitor-community/admob). Real ad unit
-// IDs from the account — these serve real ads and count toward real
+// AdMob (native ads on iOS/Android, via @capacitor-community/admob). Real ad
+// unit IDs from the account — these serve real ads and count toward real
 // revenue/impressions, unlike Google's public demo IDs used during initial
-// integration. See also Info.plist's GADApplicationIdentifier.
-const ADMOB_INTERSTITIAL_AD_UNIT_ID = 'ca-app-pub-5040304268747359/3571606543';
-const ADMOB_REWARDED_AD_UNIT_ID = 'ca-app-pub-5040304268747359/8664151129';
-// Rewarded Interstitial ad unit exists in the AdMob account
+// integration. iOS and Android are two separate apps in the same AdMob
+// account, each with its own distinct App ID and per-format ad unit IDs —
+// see also Info.plist's GADApplicationIdentifier for iOS and
+// AndroidManifest.xml's matching meta-data tag for Android.
+const ADMOB_INTERSTITIAL_AD_UNIT_ID = isAndroidNative
+  ? 'ca-app-pub-5040304268747359/2613811734'
+  : 'ca-app-pub-5040304268747359/3571606543';
+const ADMOB_REWARDED_AD_UNIT_ID = isAndroidNative
+  ? 'ca-app-pub-5040304268747359/PENDING_ANDROID_REWARDED_UNIT' // TODO: swap in the real Android Rewarded ad unit ID once it's created in AdMob — the Interstitial one is already live
+  : 'ca-app-pub-5040304268747359/8664151129';
+// Rewarded Interstitial ad unit exists in the AdMob account for iOS
 // (ca-app-pub-5040304268747359/7351069456) but isn't wired up — nothing in
 // the game currently uses that ad format (it auto-shows at a break without
 // the player opting in first, unlike the plain Rewarded flow the "Watch Ad

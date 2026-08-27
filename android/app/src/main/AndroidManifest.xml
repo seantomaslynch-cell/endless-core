@@ -9,6 +9,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- AdMob Android App ID (this app's own entry in the AdMob account,
+             distinct from the iOS app's — see ADMOB_INTERSTITIAL_AD_UNIT_ID/
+             ADMOB_REWARDED_AD_UNIT_ID in game.js for the matching per-format
+             ad unit IDs). Required by the Google Mobile Ads SDK at startup;
+             its absence would silently break ad loading on Android only. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-5040304268747359~5295815398" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
