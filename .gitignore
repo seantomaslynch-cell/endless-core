@@ -17,3 +17,10 @@ android/captures/
 android/*.iml
 android/.idea/
 
+# Play Store signing credentials — never commit these. Losing them is
+# recoverable via Play App Signing's key-reset support flow, but a leak is
+# not: anyone with this file + its passwords could sign an update to this
+# app's real package name.
+android/app/upload-keystore.jks
+android/keystore.properties
+
