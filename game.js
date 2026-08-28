@@ -2322,22 +2322,26 @@ async function initAdMob() {
   try {
     await admob.initialize();
 
-    const [trackingInfo, consentInfo] = await Promise.all([
-      admob.trackingAuthorizationStatus(),
-      admob.requestConsentInfo(),
-    ]);
-
-    if (trackingInfo.status === 'notDetermined') {
-      await admob.requestTrackingAuthorization();
-    }
-
-    const authorizationStatus = await admob.trackingAuthorizationStatus();
+    // GDPR/UK consent (Google's own UMP flow) is a separate legal
+    // requirement from Apple's ATT, not contingent on it — it governs ad
+    // personalization/data-processing consent for EEA/UK users generally,
+    // independent of whether they've granted IDFA tracking specifically.
+    // Gating it behind ATT authorization (the previous code did) meant
+    // the consent form silently never showed for the majority of users,
+    // who decline the ATT prompt — a real compliance gap, not just a
+    // missed personalization opportunity. Sequenced before the ATT
+    // request too, matching Google's own reference UMP integration order.
+    const consentInfo = await admob.requestConsentInfo();
     if (
-      authorizationStatus.status === 'authorized' &&
       consentInfo.isConsentFormAvailable &&
       consentInfo.status === 'REQUIRED' // AdmobConsentStatus.REQUIRED — a plain string enum, safe to reference directly without importing it
     ) {
       await admob.showConsentForm();
+    }
+
+    const trackingInfo = await admob.trackingAuthorizationStatus();
+    if (trackingInfo.status === 'notDetermined') {
+      await admob.requestTrackingAuthorization();
     }
   } catch (e) {
     // AdMob init/consent wiring must never block the game from running
