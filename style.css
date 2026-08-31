@@ -974,6 +974,9 @@ body.paused #gameCanvas {
   gap: 10px;
   width: 100%;
   max-width: 300px;
+  max-height: 48vh;
+  overflow-y: auto;
+  touch-action: pan-y; /* same reasoning as .achievement-list/.pass-tier-list */
   margin-top: 4px;
 }
 

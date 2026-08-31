@@ -657,7 +657,8 @@ function loadRelicsFound() {
 
 // ---------- Daily Contracts ----------
 // One template per goal type; each refresh picks a random target/bonus from
-// each template so the day's 3 contracts are always one-of-each-type.
+// each template so the day's contracts are always one-of-each-type (one
+// per entry in CONTRACT_TEMPLATES below).
 // getProgress() reads live run state, so it always reflects "this run" even
 // though the contract definitions persist across many runs in the same day.
 const CONTRACT_TEMPLATES = [
@@ -681,6 +682,16 @@ const CONTRACT_TEMPLATES = [
     label: (target) => `Break ${target} Dirt blocks`,
     bonusRange: [15, 30],
     getProgress: () => state.dirtBroken,
+  },
+  {
+    id: 'diamonds',
+    // Diamonds are genuinely rare (DIAMOND_CHANCE_BASE = 0.0008/row, no
+    // upgrade gets far past double that) — even a strong deep run often
+    // finds 0-1. 1-3 keeps this a real ask without being unreachable.
+    randomTarget: () => Math.round(1 + Math.random() * 2),
+    label: (target) => `Collect ${target} 💎 Diamonds in one run`,
+    bonusRange: [40, 70], // higher payout than the other goals — matches how much harder this one actually is
+    getProgress: () => state.diamondsThisRun,
   },
 ];
 const CONTRACT_REFRESH_MS = 24 * 60 * 60 * 1000; // rolling 24h window
@@ -3987,8 +3998,8 @@ function updateScoreBoost(dt) {
   state.scoreBoostTimer = Math.max(0, state.scoreBoostTimer - dt);
 }
 
-// Awards one not-yet-owned relic (spawn logic already stops once all 5 are
-// found, so this always has a candidate when called).
+// Awards one not-yet-owned relic (spawn logic already stops once all
+// RELIC_DEFS.length are found, so this always has a candidate when called).
 function collectRelic(worldX, worldY) {
   const uncollectedIds = RELIC_DEFS.map((r) => r.id).filter((id) => !state.relicsFound.includes(id));
   if (uncollectedIds.length === 0) return;
