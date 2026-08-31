@@ -2545,19 +2545,59 @@ function submitBridgeLeaderboardScore(score) {
 // means the platform has no leaderboard UI of its own, so Bridge hands back
 // raw entries (see getEntries() in openLeaderboard()) and this game has to
 // render them itself, same responsibility as any other in-game overlay.
+// Built from DOM nodes with textContent rather than an innerHTML template.
+//
+// Two reasons, both real rather than stylistic:
+//
+//   1. Entry names and photo URLs are OTHER PLAYERS' input, arriving from the
+//      leaderboard service. Interpolating them into markup let a name
+//      containing an image tag with an error handler on it run script in every
+//      other player's client, and a photo URL containing a quote could break
+//      out of the src attribute the same way. textContent cannot be escaped
+//      out of. (Deliberately described rather than shown: a literal example
+//      here would trip this project's own inline-handler static scan.)
+//
+//   2. e.photo is a REMOTE url. Both Playgama and YouTube Playables require a
+//      self-contained bundle that makes no external network calls, so fetching
+//      avatars from the leaderboard host is a certification risk as well as a
+//      privacy one. The local CSS placeholder circle is used unconditionally,
+//      which keeps the row layout identical to before.
 function renderLeaderboardScreen(entries) {
-  if (!entries.length) {
-    leaderboardListEl.innerHTML = '<div class="leaderboard-empty">No scores yet — be the first!</div>';
+  leaderboardListEl.textContent = '';
+
+  if (!entries || !entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'leaderboard-empty';
+    empty.textContent = 'No scores yet — be the first!';
+    leaderboardListEl.appendChild(empty);
     return;
   }
-  leaderboardListEl.innerHTML = entries.map((e) => `
-    <div class="leaderboard-row">
-      <div class="leaderboard-rank">#${e.rank}</div>
-      ${e.photo ? `<img class="leaderboard-photo" src="${e.photo}" alt="" />` : '<div class="leaderboard-photo leaderboard-photo-placeholder"></div>'}
-      <div class="leaderboard-name">${e.name || 'Player'}</div>
-      <div class="leaderboard-score">${e.score}</div>
-    </div>
-  `).join('');
+
+  entries.forEach((e, i) => {
+    const row = document.createElement('div');
+    row.className = 'leaderboard-row';
+
+    const rank = document.createElement('div');
+    rank.className = 'leaderboard-rank';
+    rank.textContent = '#' + (e.rank != null ? e.rank : i + 1);
+
+    const photo = document.createElement('div');
+    photo.className = 'leaderboard-photo leaderboard-photo-placeholder';
+
+    const name = document.createElement('div');
+    name.className = 'leaderboard-name';
+    name.textContent = e.name || 'Player';
+
+    const score = document.createElement('div');
+    score.className = 'leaderboard-score';
+    score.textContent = e.score != null ? e.score : 0;
+
+    row.appendChild(rank);
+    row.appendChild(photo);
+    row.appendChild(name);
+    row.appendChild(score);
+    leaderboardListEl.appendChild(row);
+  });
 }
 
 // ---------- App Store review prompt ----------
