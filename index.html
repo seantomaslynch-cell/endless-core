@@ -268,6 +268,16 @@
     <button id="close-achievements-btn">Close</button>
   </div>
 
+  <!-- Bridge SaaS Leaderboard Overlay (web only) — only actually rendered
+       into when bridge.leaderboards.type is 'in_game' (see
+       openLeaderboard() in game.js); 'native_popup' platforms show their
+       own UI instead and never touch this markup. -->
+  <div id="leaderboard-screen" class="overlay hidden">
+    <h1>LEADERBOARD</h1>
+    <div class="leaderboard-list" id="leaderboard-list"></div>
+    <button id="close-leaderboard-btn">Close</button>
+  </div>
+
   <!-- Settings Overlay -->
   <div id="settings-screen" class="overlay hidden">
     <h1>SETTINGS</h1>

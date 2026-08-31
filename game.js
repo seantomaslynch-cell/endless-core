@@ -2438,23 +2438,46 @@ async function authenticateGameCenter() {
 // showLeaderboard() on the native side (GameCenterPlugin.swift) already
 // exists and presents Apple's own GKGameCenterViewController — this is the
 // real, genuinely global (cross-device, via Apple ID) leaderboard the game
-// already submits scores to at endGame(); nothing on the JS side called it
-// until now. Lazily authenticates first, since the menu's Leaderboard
-// button can be tapped before any run has ever started (the only other
-// authenticateGameCenter() call site is startGame()).
-async function openGameCenterLeaderboard() {
-  if (!isNativeMobile) return;
-  const plugin = getGameCenterPlugin();
-  if (!plugin) return;
-  if (!gameCenterAuthenticated) await authenticateGameCenter();
-  if (!gameCenterAuthenticated) {
-    queueToast('Game Center unavailable');
+// already submits scores to at endGame(). On web, the same button falls
+// through to Playgama's Bridge SaaS leaderboard (see the "Bridge
+// leaderboard (web)" section below) — one button, platform picked
+// automatically by isNativeMobile, same as every other cross-platform
+// entry point in this file. Lazily authenticates first, since the menu's
+// Leaderboard button can be tapped before any run has ever started (the
+// only other authenticateGameCenter() call site is startGame()).
+async function openLeaderboard() {
+  if (isNativeMobile) {
+    const plugin = getGameCenterPlugin();
+    if (!plugin) return;
+    if (!gameCenterAuthenticated) await authenticateGameCenter();
+    if (!gameCenterAuthenticated) {
+      queueToast('Game Center unavailable');
+      return;
+    }
+    try {
+      await plugin.showLeaderboard();
+    } catch (e) {
+      // best-effort — never blocks the menu
+    }
     return;
   }
+
+  if (!(window.bridge && bridgeReadyPromise)) { queueToast('Leaderboard unavailable'); return; }
   try {
-    await plugin.showLeaderboard();
+    await bridgeReadyPromise;
+    const lb = window.bridge.leaderboards;
+    if (!lb) { queueToast('Leaderboard unavailable'); return; }
+    if (lb.type === 'native_popup' && lb.showNativePopup) {
+      await lb.showNativePopup(BRIDGE_LEADERBOARD_ID);
+    } else if (lb.type === 'in_game' && lb.getEntries) {
+      const entries = await lb.getEntries(BRIDGE_LEADERBOARD_ID);
+      renderLeaderboardScreen(entries || []);
+      openOverlay(leaderboardScreen);
+    } else {
+      queueToast('Leaderboard unavailable'); // 'not_available', or platform doesn't support either UI mode
+    }
   } catch (e) {
-    // best-effort — never blocks the menu
+    queueToast('Leaderboard unavailable');
   }
 }
 
@@ -2478,6 +2501,44 @@ async function submitGameCenterAchievement(achievementID) {
   } catch (e) {
     // best-effort — a failed report never blocks gameplay
   }
+}
+
+// ---------- Bridge leaderboard (web) ----------
+// Web equivalent of GAME_CENTER_LEADERBOARD_ID above — same naming, so the
+// two are easy to tell apart at a glance. This is Playgama's SaaS
+// leaderboard service (see playgama-bridge-config.json's "saas"/
+// "leaderboards" blocks) — the actual public token and leaderboard-service
+// enablement is configured there, not here.
+const BRIDGE_LEADERBOARD_ID = 'endless_core_high_score';
+const leaderboardScreen = document.getElementById('leaderboard-screen');
+const leaderboardListEl = document.getElementById('leaderboard-list');
+
+function submitBridgeLeaderboardScore(score) {
+  if (!(window.bridge && bridgeReadyPromise)) return;
+  bridgeReadyPromise.then(() => {
+    if (window.bridge.leaderboards && window.bridge.leaderboards.setScore) {
+      return window.bridge.leaderboards.setScore(BRIDGE_LEADERBOARD_ID, Math.round(score));
+    }
+  }).catch(() => {});
+}
+
+// Only reached when bridge.leaderboards.type === 'in_game' — that mode
+// means the platform has no leaderboard UI of its own, so Bridge hands back
+// raw entries (see getEntries() in openLeaderboard()) and this game has to
+// render them itself, same responsibility as any other in-game overlay.
+function renderLeaderboardScreen(entries) {
+  if (!entries.length) {
+    leaderboardListEl.innerHTML = '<div class="leaderboard-empty">No scores yet — be the first!</div>';
+    return;
+  }
+  leaderboardListEl.innerHTML = entries.map((e) => `
+    <div class="leaderboard-row">
+      <div class="leaderboard-rank">#${e.rank}</div>
+      ${e.photo ? `<img class="leaderboard-photo" src="${e.photo}" alt="" />` : '<div class="leaderboard-photo leaderboard-photo-placeholder"></div>'}
+      <div class="leaderboard-name">${e.name || 'Player'}</div>
+      <div class="leaderboard-score">${e.score}</div>
+    </div>
+  `).join('');
 }
 
 // ---------- App Store review prompt ----------
@@ -2622,6 +2683,7 @@ function openOverlay(screenEl) {
   settingsScreen.classList.add('hidden');
   achievementsScreen.classList.add('hidden');
   baseScreen.classList.add('hidden');
+  leaderboardScreen.classList.add('hidden');
   startScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
   screenEl.classList.remove('hidden');
@@ -2903,7 +2965,10 @@ prestigeBtn.addEventListener('click', () => {
   renderBaseScreen();
   updateStartScreenHud();
 });
-startLeaderboardBtn.addEventListener('click', openGameCenterLeaderboard);
+startLeaderboardBtn.addEventListener('click', openLeaderboard);
+document.getElementById('close-leaderboard-btn').addEventListener('click', () => {
+  closeOverlay(leaderboardScreen);
+});
 baseWatchAdDiamondBtn.addEventListener('click', watchAdBonusDiamond);
 
 function openBaseScreen() {
@@ -3680,6 +3745,7 @@ function endGame(causeOfDeath) {
   Analytics.logRunEnd(causeOfDeath || 'Fuel Starvation');
   sdkSendScore(currentScore());
   submitGameCenterScore(currentScore());
+  submitBridgeLeaderboardScore(currentScore());
   checkAndReportGameCenterAchievements();
 
   if (interstitialArmed) {

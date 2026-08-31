@@ -22,5 +22,14 @@
                 ]
             }
         }
-    }
+    },
+    "saas": {
+        "publicToken": "cmtgug2iy6elfjr0h67a4k3nz",
+        "leaderboards": {
+            "platforms": ["playgama", "qa_tool"]
+        }
+    },
+    "leaderboards": [
+        { "id": "endless_core_high_score" }
+    ]
 }

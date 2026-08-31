@@ -1480,3 +1480,70 @@ body.paused #gameCanvas {
   font-weight: bold;
   flex-shrink: 0;
 }
+
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+  max-height: 48vh;
+  overflow-y: auto;
+  touch-action: pan-y; /* same reasoning as .achievement-list/.pass-tier-list */
+  margin-top: 2px;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.leaderboard-rank {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffd700;
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.leaderboard-photo {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.leaderboard-photo-placeholder {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.leaderboard-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leaderboard-score {
+  font-size: 14px;
+  font-weight: bold;
+  color: #81c784;
+  flex-shrink: 0;
+}
+
+.leaderboard-empty {
+  opacity: 0.7;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px 0;
+}
