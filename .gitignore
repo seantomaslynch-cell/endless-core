@@ -24,3 +24,8 @@ android/.idea/
 android/app/upload-keystore.jks
 android/keystore.properties
 
+# Generated store-listing deliverables (screenshots, icons, submission
+# zips) — regenerable from the tracked source files, already delivered
+# directly to the developer, not meant to live in version control.
+store-assets/
+

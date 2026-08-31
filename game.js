@@ -3,18 +3,24 @@
 // ============================================================
 
 // ---------- Cross-platform bridge ----------
-// This single game.js ships to three hosts: the web build (YouTube
-// Playables, gated by window.ytgame.IN_PLAYABLES_ENV — see the SDK
-// bootstrap section further down) and the Capacitor-wrapped iOS and Android
-// apps. isNativeMobile is the one flag that tells the rest of the file
-// whether a native platform bridge is live at all (or on ytgame's own
-// presence, which is simply absent/inert on native) rather than assuming
-// any one platform; isAndroidNative further distinguishes Android from iOS
-// for the handful of things that genuinely differ between them (AdMob ad
-// unit IDs — the two are separate apps in the AdMob account with distinct
-// IDs per ad format; Game Center has no Android equivalent wired up yet).
+// This single game.js ships to three hosts: the web build (distributed via
+// the Playgama Bridge SDK, window.bridge — see the SDK bootstrap section
+// further down) and the Capacitor-wrapped iOS and Android apps.
+// isNativeMobile is the one flag that tells the rest of the file whether a
+// native platform bridge is live at all (or on Bridge's own presence, which
+// is simply absent/inert on native) rather than assuming any one platform;
+// isAndroidNative further distinguishes Android from iOS for the handful of
+// things that genuinely differ between them (AdMob ad unit IDs — the two
+// are separate apps in the AdMob account with distinct IDs per ad format;
+// Game Center has no Android equivalent wired up yet).
 const isNativeMobile = typeof window !== 'undefined' && !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
 const isAndroidNative = isNativeMobile && !!(window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android');
+
+// Resolves once window.bridge.initialize() settles — every Bridge API call
+// must wait on this (Playgama's own #1 required integration rule). null
+// until initPlayablesSDK() runs; guarded everywhere it's read since several
+// storageSet() calls happen before that (module-eval-time state loading).
+let bridgeReadyPromise = null;
 
 // ---------- Safe storage wrapper ----------
 // localStorage can throw synchronously (SecurityError) rather than just
@@ -221,8 +227,8 @@ function playNoiseBurst(now, duration, peakGain, filterFreq, filterType, filterQ
 }
 
 // Separate from muteAudio()/unmuteAudio() above (which duck gain to 0 during
-// a rewarded ad): this reflects the YouTube platform's own mute state via
-// ytgame.system.isAudioEnabled()/onAudioEnabledChange. The spec requires
+// a rewarded ad): this reflects the host platform's own mute state via
+// bridge.platform.isAudioEnabled / AUDIO_STATE_CHANGED. The spec requires
 // zero sound nodes while platform-muted, not just silent output, so
 // playSound() checks this and returns before creating any AudioNode at all.
 let sdkAudioEnabled = true;
@@ -2039,8 +2045,8 @@ document.addEventListener('pointerdown', (e) => {
 
 // ---------- SDK-driven platform pause ----------
 // Distinct from the game's own round-lifecycle pausing (pauseGameLoop(), used
-// for game-over / Chest overlays) — this fires from ytgame.system.onPause at
-// ANY point (start screen, mid-run, mid-overlay), so it has to work
+// for game-over / Chest overlays) — this fires from Bridge's
+// PAUSE_STATE_CHANGED event at ANY point (start screen, mid-run, mid-overlay), so it has to work
 // regardless of what else is happening. isPaused guards every input handler
 // and the loop itself, backing up the CSS pointer-events lockout.
 let isPaused = false;
@@ -2215,31 +2221,76 @@ const WELCOME_BACK_DOUBLE_BTN_DEFAULT_TEXT = welcomeBackDoubleBtn.textContent;
 document.getElementById('start-btn').addEventListener('click', startGame);
 document.getElementById('restart-btn').addEventListener('click', startGame);
 
+// Wraps Bridge's event-based rewarded flow (showRewarded() triggers the ad;
+// completion arrives later via a REWARDED_STATE_CHANGED event, not the call's
+// own return value) into the same "resolve true/false once" shape every
+// other showRewardedVideo() branch already returns, so callers don't need to
+// know which SDK is behind it. Resolves false on any missing API, since
+// callers already only grant a reward inside `if (watched) { ... }`.
+function bridgeShowRewarded(placement) {
+  return new Promise((resolve) => {
+    const ads = window.bridge && window.bridge.advertisement;
+    if (!(ads && ads.showRewarded)) { resolve(false); return; }
+    let settled = false;
+    const eventName = window.bridge.EVENT_NAME && window.bridge.EVENT_NAME.REWARDED_STATE_CHANGED;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (eventName && typeof ads.off === 'function') {
+        try { ads.off(eventName, onState); } catch (e) {}
+      }
+      resolve(result);
+    };
+    const onState = (adState) => {
+      if (adState === 'rewarded') finish(true);
+      else if (adState === 'closed' || adState === 'failed') finish(false);
+    };
+    try {
+      if (eventName && typeof ads.on === 'function') ads.on(eventName, onState);
+      ads.showRewarded(placement);
+    } catch (e) {
+      finish(false);
+    }
+  });
+}
+
 // ---------- Rewarded video ads ----------
-// Calls the real YouTube Playables SDK (ytgame.ads.requestRewardedAd) when
-// present — which the certification harness's mock always provides, so that
-// path is what gets exercised during testing. The setTimeout-based branch
-// only runs as a dev fallback when NEITHER the real SDK nor a test mock is
-// injected (e.g. opening index.html directly in a plain browser), so the ad
-// flow stays testable outside the Playables env. Player-initiated only (only
-// ever called from a click handler); resolves false on any failure/throw —
-// callers already only grant their reward inside `if (watched) { ... }`.
-function showRewardedVideo(rewardId) {
+// Routes through the real Playgama Bridge SDK (bridge.advertisement,
+// bridgeShowRewarded() above) when present — which the certification
+// harness's mock always provides, so that path is what gets exercised during
+// testing. The setTimeout-based branch only runs as a dev fallback when
+// NEITHER Bridge nor a test mock is injected (e.g. opening index.html
+// directly in a plain browser), so the ad flow stays testable outside any
+// platform env. Player-initiated only (only ever called from a click
+// handler); resolves false on any failure/throw — callers already only
+// grant their reward inside `if (watched) { ... }`.
+async function showRewardedVideo(rewardId) {
   muteAudio(); // duck game audio for the duration of the ad
 
   if (isNativeMobile) {
     const admob = getAdMobPlugin();
-    if (!admob) { unmuteAudio(); return Promise.resolve(false); } // plugin not registered — fail closed, never throw
-    return admob.prepareRewardVideoAd({ adId: ADMOB_REWARDED_AD_UNIT_ID })
-      .then(() => admob.showRewardVideoAd())
-      .then((rewardItem) => { unmuteAudio(); return !!rewardItem; }) // truthy reward item = actually watched through
-      .catch(() => { unmuteAudio(); return false; }); // load/show failure or dismissed early = no reward, not a crash
+    if (!admob) { unmuteAudio(); return false; } // plugin not registered — fail closed, never throw
+    try {
+      await admob.prepareRewardVideoAd({ adId: ADMOB_REWARDED_AD_UNIT_ID });
+      const rewardItem = await admob.showRewardVideoAd();
+      unmuteAudio();
+      return !!rewardItem; // truthy reward item = actually watched through
+    } catch (e) {
+      unmuteAudio();
+      return false; // load/show failure or dismissed early = no reward, not a crash
+    }
   }
 
-  if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestRewardedAd) {
-    return Promise.resolve(window.ytgame.ads.requestRewardedAd(rewardId))
-      .then((result) => { unmuteAudio(); return !!result; })
-      .catch(() => { unmuteAudio(); return false; }); // throw = graceful no-reward, not a crash
+  if (window.bridge && bridgeReadyPromise) {
+    // Required: never touch bridge.advertisement until initialize() has
+    // actually resolved — reading it any earlier (even just this property
+    // check) logs a real SDK warning, confirmed against the live CDN script.
+    try { await bridgeReadyPromise; } catch (e) { /* fall through to dev fallback below */ }
+    if (window.bridge.advertisement && window.bridge.advertisement.isRewardedSupported) {
+      const result = await bridgeShowRewarded(rewardId);
+      unmuteAudio();
+      return result;
+    }
   }
 
   return new Promise((resolve) => {
@@ -2559,6 +2610,7 @@ document.getElementById('share-score-btn').addEventListener('click', shareScore)
 let overlayReturnScreen = null;
 
 function openOverlay(screenEl) {
+  hideMenuBanner(); // sub-menu screens scroll internally — not a confirmed-safe placement, see showMenuBanner's comment
   if (!startScreen.classList.contains('hidden')) overlayReturnScreen = startScreen;
   else if (!gameoverScreen.classList.contains('hidden')) overlayReturnScreen = gameoverScreen;
   upgradesScreen.classList.add('hidden');
@@ -2580,6 +2632,7 @@ function closeOverlay(screenEl) {
   if (overlayReturnScreen) overlayReturnScreen.classList.remove('hidden');
   overlayReturnScreen = null;
   updateStartScreenHud(); // covers every path back to the start screen in one place
+  showMenuBanner(); // returning to Start or Game Over — both confirmed-safe placements
 }
 
 // Refreshes the main menu's persistent Gold/streak readout and the Season
@@ -3475,14 +3528,52 @@ async function showInterstitialAd() {
     }
     return;
   }
-  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.ads && window.ytgame.ads.requestInterstitialAd)) {
-    return; // no SDK present (local/dev testing) — nothing to show
-  }
+  if (!(window.bridge && bridgeReadyPromise)) return; // no SDK present — nothing to show
+  // Required: never touch bridge.advertisement until initialize() has
+  // actually resolved — reading it any earlier logs a real SDK warning,
+  // confirmed against the live CDN script.
   try {
-    await window.ytgame.ads.requestInterstitialAd();
+    await bridgeReadyPromise;
+    if (!(window.bridge.advertisement && window.bridge.advertisement.showInterstitial && window.bridge.advertisement.isInterstitialSupported)) {
+      return; // platform doesn't support this format — nothing to show
+    }
+    window.bridge.advertisement.showInterstitial();
   } catch (e) {
     // interstitial failures are never fatal — gameplay continues regardless
   }
+}
+
+// ---------- Advanced Banners (SDK) ----------
+// Web-only, non-blocking passive ads placed in genuinely empty screen space
+// — never during gameplay. Deliberately scoped to just the Start Screen and
+// Game Over screen, NOT the Base/Museum/Upgrades/etc. sub-menus: those
+// overlays scroll internally (measured up to ~1770px of content in an
+// 812px viewport for the Base screen), so a viewport-fixed bottom banner
+// could end up sitting on top of whatever real button happens to be
+// scrolled into that strip — the Start and Game Over screens are the only
+// two confirmed to fit entirely within one viewport with a genuinely empty
+// ~70-90px gap below their lowest button, at every screen size tested.
+// isNativeMobile is never checked here — Advanced Banners is a Bridge-only,
+// web-only feature (AdMob has no equivalent), so this is simply a no-op
+// inside the native apps regardless.
+const BANNER_PLACEMENT = 'menu_idle';
+
+function showMenuBanner() {
+  if (!(window.bridge && bridgeReadyPromise)) return;
+  bridgeReadyPromise.then(() => {
+    if (window.bridge.advertisement && window.bridge.advertisement.isAdvancedBannersSupported) {
+      window.bridge.advertisement.showAdvancedBanners(BANNER_PLACEMENT);
+    }
+  }).catch(() => {});
+}
+
+function hideMenuBanner() {
+  if (!(window.bridge && bridgeReadyPromise)) return;
+  bridgeReadyPromise.then(() => {
+    if (window.bridge.advertisement && window.bridge.advertisement.hideAdvancedBanners) {
+      window.bridge.advertisement.hideAdvancedBanners();
+    }
+  }).catch(() => {});
 }
 
 function tickInterstitialTimer() {
@@ -3493,6 +3584,7 @@ function tickInterstitialTimer() {
 
 // ---------- Game flow ----------
 function startGame() {
+  hideMenuBanner(); // leaving a safe menu screen for active gameplay
   world.rows = [];
   world.lastSafeX = Math.floor(COLS / 2);
   world.nextRowToGenerate = 0;
@@ -3611,6 +3703,7 @@ function endGame(causeOfDeath) {
   doubleGoldBtn.disabled = false;
 
   gameoverScreen.classList.remove('hidden');
+  showMenuBanner(); // confirmed-safe: fits in one viewport, ~70px genuinely empty below the lowest button
 }
 
 // ---------- Update ----------
@@ -4523,9 +4616,9 @@ function pauseGameLoop() {
   ambientPadFadeOut(); // single choke point for manual pause, Chest hit, AND Game Over
 }
 
-// ---------- Platform lifecycle bootstrap (Playables SDK / Capacitor) ----------
+// ---------- Platform lifecycle bootstrap (Playgama Bridge SDK / Capacitor) ----------
 // Every hook here is wrapped so an SDK failure/absence can never break the
-// game — this file also has to run standalone (no ytgame, no Capacitor) for
+// game — this file also has to run standalone (no Bridge, no Capacitor) for
 // local dev and the browser-based verification workflow.
 function initPlayablesSDK() {
   if (isNativeMobile) {
@@ -4563,67 +4656,89 @@ function initPlayablesSDK() {
     return;
   }
 
-  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV)) return;
-  try {
-    const sys = window.ytgame.system;
-    if (sys) {
-      if (sys.isAudioEnabled) applySdkAudioState(sys.isAudioEnabled());
-      if (sys.onAudioEnabledChange) sys.onAudioEnabledChange((enabled) => applySdkAudioState(enabled));
-      if (sys.onPause) sys.onPause(handleSdkPause);
-      if (sys.onResume) sys.onResume(handleSdkResume);
-    }
-  } catch (e) {
-    // SDK wiring must never block the game from running
-  }
-}
+  if (!(window.bridge && window.bridge.initialize)) return; // Bridge script didn't load — game already works fully offline/local
+  bridgeReadyPromise = window.bridge.initialize();
+  bridgeReadyPromise.then(() => {
+    try {
+      // Required step: read platform.language once after init. This game
+      // has no localization system (English-only), so there's nothing to
+      // switch — read-and-ignore is the honest, compliant thing to do here
+      // rather than pretending to act on a language we don't support.
+      void window.bridge.platform.language;
 
-function notifyFirstFrameReady() {
-  try {
-    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.firstFrameReady) {
-      window.ytgame.game.firstFrameReady();
+      const platform = window.bridge.platform;
+      const EVENT = window.bridge.EVENT_NAME;
+      if (platform) {
+        // Required step: apply the CURRENT audio state on start — the event
+        // below only fires on subsequent changes, not the initial value.
+        if (typeof platform.isAudioEnabled !== 'undefined') applySdkAudioState(platform.isAudioEnabled);
+        if (EVENT && typeof platform.on === 'function') {
+          if (EVENT.AUDIO_STATE_CHANGED) platform.on(EVENT.AUDIO_STATE_CHANGED, (enabled) => applySdkAudioState(enabled));
+          if (EVENT.PAUSE_STATE_CHANGED) platform.on(EVENT.PAUSE_STATE_CHANGED, (paused) => { if (paused) handleSdkPause(); else handleSdkResume(); });
+        }
+      }
+    } catch (e) {
+      // SDK wiring must never block the game from running
     }
-  } catch (e) {}
+    notifyGameReady();       // required: only after Bridge is actually initialized
+    sdkLoadAndMergeIfAvailable();
+    showMenuBanner();        // Start Screen is the default visible screen at this point
+  }).catch(() => {
+    // initialize() rejected — game already works fully offline/local, nothing else to do
+  });
 }
 
 function notifyGameReady() {
   try {
-    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.gameReady) {
-      window.ytgame.game.gameReady();
+    if (window.bridge && window.bridge.platform && window.bridge.platform.sendMessage) {
+      window.bridge.platform.sendMessage('game_ready');
     }
   } catch (e) {}
 }
 
-function sdkSendScore(value) {
-  try {
-    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.engagement && window.ytgame.engagement.sendScore) {
-      window.ytgame.engagement.sendScore({ value });
+// Bridge has no direct score-submission call (Leaderboards is a separate,
+// unconfigured optional module) — this now reports the recommended
+// level_failed lifecycle message at the same hook (a run ending in
+// destruction maps to "the player lost the level" in Bridge's model).
+function sdkSendScore() {
+  if (!(window.bridge && bridgeReadyPromise)) return;
+  bridgeReadyPromise.then(() => {
+    if (window.bridge.platform && window.bridge.platform.sendMessage) {
+      window.bridge.platform.sendMessage('level_failed');
     }
-  } catch (e) {}
+  }).catch(() => {});
 }
 
 // Mirrors the same fields already covered by storageGet/storageSet into the
-// platform's own save slot, best-effort. localStorage/memory stays the
-// primary synchronous source (state is built from it at module-eval time,
-// before any async SDK call could resolve) — this is a secondary copy so
-// progress can follow the player across devices where the platform supports
-// it, not a replacement for the safe-storage fallback built above.
+// platform's own save slot (bridge.storage — never raw localStorage, per
+// Playgama's Storage requirement), best-effort. localStorage/memory stays
+// the primary synchronous source (state is built from it at module-eval
+// time, before any async SDK call could resolve) — this is a secondary copy
+// so progress can follow the player across devices where the platform
+// supports it, not a replacement for the safe-storage fallback built above.
 function sdkSaveIfAvailable() {
-  try {
-    if (window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.saveData) {
-      window.ytgame.game.saveData(JSON.stringify({
-        bankedGold: state.bankedGold,
-        highScore: state.highScore,
-        fuelUpgradeLevel: state.fuelUpgradeLevel,
-        coolingUpgradeLevel: state.coolingUpgradeLevel,
-        thrusterUpgradeLevel: state.thrusterUpgradeLevel,
-        alloyUpgradeLevel: state.alloyUpgradeLevel,
-        relicsFound: state.relicsFound,
-        selectedClass: state.selectedClass,
-        unlockedTrails: state.unlockedTrails,
-        selectedTrail: state.selectedTrail,
-      }));
-    }
-  } catch (e) {}
+  // bridgeReadyPromise null = init hasn't started yet (this can fire during
+  // module-eval-time state loading, before initPlayablesSDK() has even run)
+  // — skip for now, the next storageSet() call will catch it. Required:
+  // window.bridge.storage itself is never read until INSIDE the .then()
+  // below — touching it any earlier (even just this presence check) logs a
+  // real SDK warning, confirmed against the live CDN script.
+  if (!(window.bridge && bridgeReadyPromise)) return;
+  bridgeReadyPromise.then(() => {
+    if (!window.bridge.storage) return;
+    return window.bridge.storage.set(['ec_save'], [JSON.stringify({
+      bankedGold: state.bankedGold,
+      highScore: state.highScore,
+      fuelUpgradeLevel: state.fuelUpgradeLevel,
+      coolingUpgradeLevel: state.coolingUpgradeLevel,
+      thrusterUpgradeLevel: state.thrusterUpgradeLevel,
+      alloyUpgradeLevel: state.alloyUpgradeLevel,
+      relicsFound: state.relicsFound,
+      selectedClass: state.selectedClass,
+      unlockedTrails: state.unlockedTrails,
+      selectedTrail: state.selectedTrail,
+    })]);
+  }).catch(() => {});
 }
 
 // Best-effort async patch-in of the platform save over whatever
@@ -4633,11 +4748,17 @@ function sdkSaveIfAvailable() {
 // mirrors the same values (see sdkSaveIfAvailable), so the two rarely
 // disagree in practice.
 async function sdkLoadAndMergeIfAvailable() {
-  if (!(window.ytgame && window.ytgame.IN_PLAYABLES_ENV && window.ytgame.game && window.ytgame.game.loadData)) return;
+  if (!(window.bridge && window.bridge.storage && bridgeReadyPromise)) return;
   try {
-    const raw = await window.ytgame.game.loadData();
+    await bridgeReadyPromise;
+    const result = await window.bridge.storage.get(['ec_save']);
+    const raw = result && result[0];
     if (!raw) return;
-    const data = JSON.parse(raw);
+    // Confirmed against the real Bridge SDK: storage.get() can hand back an
+    // already-parsed object for a value that was storage.set() as a JSON
+    // string, not the raw string itself — parse only if it's actually still
+    // a string, otherwise use the object as-is.
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (typeof data.bankedGold === 'number') state.bankedGold = data.bankedGold;
     if (typeof data.highScore === 'number') state.highScore = data.highScore;
     if (typeof data.fuelUpgradeLevel === 'number') state.fuelUpgradeLevel = data.fuelUpgradeLevel;
@@ -4792,6 +4913,15 @@ function checkLoginStreak() {
 setInterval(() => storageSet('ec_lastPlayedTimestamp', String(Date.now())), OFFLINE_HEARTBEAT_MS);
 window.addEventListener('beforeunload', () => storageSet('ec_lastPlayedTimestamp', String(Date.now())));
 
+// Starts the async Bridge init (or native AdMob/App-plugin wiring) as early
+// as possible. Everything below is still synchronous and local-storage-first
+// — the game is fully playable immediately and never waits on this; Bridge's
+// own required game_ready message and save/load merge fire later, from
+// inside initPlayablesSDK()'s bridge.initialize().then() callback, once
+// Bridge is actually ready to accept API calls (never before, per Playgama's
+// #1 required integration rule).
+initPlayablesSDK();
+
 // Initial idle render (so canvas isn't blank behind the start screen)
 startHighscoreEl.textContent = 'High Score: ' + state.highScore;
 ensureRowsGenerated(20);
@@ -4802,8 +4932,3 @@ maybeShowTutorial();
 checkLoginStreak();
 updateStartScreenHud();
 applyAudioMutePreference(); // apply a persisted mute preference immediately, before the player ever opens Settings
-
-initPlayablesSDK();
-notifyFirstFrameReady(); // first frame (the start screen) is on screen as of the render() above
-notifyGameReady();       // fully interactive immediately after — no separate loading phase in this game
-sdkLoadAndMergeIfAvailable();

@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """
-YouTube Playables / Mediacube pre-submission checker — adapted for Endless Core.
+YouTube Playables / Playgama pre-submission checker — adapted for Endless Core.
 
 Usage:
     python3 playables_check.py path/to/index.html
 
-Runs every check that maps to a past Mediacube rejection:
+Runs every check that maps to a past Mediacube rejection, now aimed at the
+Playgama Bridge SDK integration (see ADAPTATION NOTES §8 — this game
+switched from calling the raw YouTube `window.ytgame` SDK directly to the
+universal `window.bridge` SDK, since Playgama's own moderation checks for
+Bridge specifically, and Bridge itself routes to the real YouTube SDK when
+running on YouTube):
   - loads with zero console/page errors
   - first interstitial fires on game start
   - timed interstitial arms and fires at game over
@@ -35,7 +40,7 @@ not the other way around):
   2. "no external scripts besides SDK" used to flag ANY non-SDK <script src>,
      which would incorrectly flag Endless Core's own local game.js. Fixed to
      only flag scripts loaded from a different origin (http(s):// or
-     protocol-relative URLs other than the YouTube SDK) — a local relative
+     protocol-relative URLs other than the platform SDK) — a local relative
      path is not an external/CDN resource.
 
   3. The runtime "no revive when reward=false" check originally asserted
@@ -53,7 +58,7 @@ not the other way around):
   5. The original audio test called a global `SFX` object (SFX.init,
      SFX.setEnabled, SFX.coin(), ...) that doesn't exist here. Endless Core's
      real API is a top-level playSound(type) plus applySdkAudioState(bool)
-     driven by ytgame.system.onAudioEnabledChange. Rewritten against that.
+     driven by the platform's audio-state hook. Rewritten against that.
      Also added a real (trusted) Playwright mouse click before the audio
      assertions — Chrome's autoplay policy only unlocks an AudioContext on a
      TRUSTED user gesture; a page.evaluate()-dispatched synthetic pointerdown
@@ -76,6 +81,25 @@ not the other way around):
      types in a terrain grid, not entity arrays; the player is `drill`, not
      a centered circle with a radius) and inventing them would just be
      testing something that isn't real.
+
+  8. Migrated from a raw-YouTube-SDK mock (`window.ytgame`) to a Playgama
+     Bridge mock (`window.bridge`) after the game itself switched SDKs to
+     publish through Playgama (whose own moderation checks for Bridge calls
+     specifically, per their integration docs). Every substring/behavior
+     check below now targets Bridge's actual API shape:
+       - firstFrameReady/gameReady (two YT-specific stages) collapsed into
+         Bridge's single `platform.sendMessage('game_ready')` — Bridge has
+         no separate "first frame" concept, so pretending it does would just
+         be testing something that isn't real (same principle as note 7).
+       - onPause/onResume -> platform.on(EVENT_NAME.PAUSE_STATE_CHANGED, ...)
+       - onAudioEnabledChange -> platform.on(EVENT_NAME.AUDIO_STATE_CHANGED, ...)
+       - saveData/loadData(JSON blob) -> storage.set(['ec_save'], [json]) /
+         storage.get(['ec_save'])
+       - requestRewardedAd(id) -> advertisement.showRewarded(placement),
+         completion arriving via a REWARDED_STATE_CHANGED event rather than
+         the call's own return value — the mock's showRewarded() fires that
+         event synchronously so the existing wait_for_timeout()s still work.
+       - requestInterstitialAd() -> advertisement.showInterstitial()
 """
 import sys, re, json, os
 
@@ -97,25 +121,55 @@ CFG = {
 
 MOCK_SDK = """
 window.__adCalls = [];
-window.__pauseCb = null; window.__resumeCb = null; window.__audioCb = null;
+window.__bridgeStorage = {};
+window.__rewardResult = true;
 window.__audioState = true;
-window.ytgame = {
-  IN_PLAYABLES_ENV: true,
-  game: { firstFrameReady:()=>{}, gameReady:()=>{}, saveData:async()=>{}, loadData:async()=>null },
-  system: {
-    isAudioEnabled: ()=>window.__audioState,
-    onAudioEnabledChange:(cb)=>{ window.__audioCb=cb; },
-    onPause:(cb)=>{ window.__pauseCb=cb; },
-    onResume:(cb)=>{ window.__resumeCb=cb; },
+window.__pauseListeners = [];
+window.__audioListeners = [];
+window.__rewardedListeners = [];
+
+window.bridge = {
+  EVENT_NAME: {
+    AUDIO_STATE_CHANGED: 'audio_state_changed',
+    PAUSE_STATE_CHANGED: 'pause_state_changed',
+    REWARDED_STATE_CHANGED: 'rewarded_state_changed',
+    INTERSTITIAL_STATE_CHANGED: 'interstitial_state_changed',
   },
-  engagement: { sendScore:()=>{}, openYTContent:()=>{} },
-  ads: {
-    requestInterstitialAd: async()=>{ window.__adCalls.push({type:'interstitial'}); },
-    requestRewardedAd: async(id)=>{ window.__adCalls.push({type:'rewarded',rewardId:id});
-      return window.__rewardResult===undefined?true:window.__rewardResult; },
+  initialize: () => Promise.resolve(),
+  platform: {
+    language: 'en',
+    get isAudioEnabled() { return window.__audioState; },
+    sendMessage: (msg) => { window.__adCalls.push({ type: 'message', msg }); },
+    on: (event, cb) => {
+      if (event === 'audio_state_changed') window.__audioListeners.push(cb);
+      if (event === 'pause_state_changed') window.__pauseListeners.push(cb);
+    },
   },
-  health:{ logError:()=>{}, logWarning:()=>{} },
+  storage: {
+    get: (keys) => Promise.resolve(keys.map((k) => (k in window.__bridgeStorage ? window.__bridgeStorage[k] : null))),
+    set: (keys, values) => { keys.forEach((k, i) => { window.__bridgeStorage[k] = values[i]; }); return Promise.resolve(); },
+  },
+  advertisement: {
+    isInterstitialSupported: true,
+    isRewardedSupported: true,
+    showInterstitial: (placement) => { window.__adCalls.push({ type: 'interstitial', placement }); },
+    showRewarded: (placement) => {
+      window.__adCalls.push({ type: 'rewarded', placement });
+      const finalState = window.__rewardResult ? 'rewarded' : 'closed';
+      window.__rewardedListeners.forEach((cb) => cb(finalState));
+    },
+    on: (event, cb) => { if (event === 'rewarded_state_changed') window.__rewardedListeners.push(cb); },
+    off: (event, cb) => {
+      if (event === 'rewarded_state_changed') window.__rewardedListeners = window.__rewardedListeners.filter((f) => f !== cb);
+    },
+  },
 };
+
+// Test-only helpers standing in for the host platform driving these events
+// (a real host fires them on tab-switch, ad-open, etc. — here the test script
+// calls them directly to simulate that).
+window.__firePause = (paused) => window.__pauseListeners.forEach((cb) => cb(paused));
+window.__fireAudio = (enabled) => { window.__audioState = enabled; window.__audioListeners.forEach((cb) => cb(enabled)); };
 """
 
 def static_scan(path):
@@ -138,24 +192,26 @@ def static_scan(path):
 
     # Structural checks: only meaningful against the HTML's own <script> tags.
     first_script_idx = html.find("<script")
-    sdk_idx = html.find("game_api/v1")
-    chk("SDK is first <script>", first_script_idx != -1 and sdk_idx != -1 and first_script_idx < sdk_idx < first_script_idx + 200)
+    sdk_idx = html.find("bridge.playgama.com")
+    chk("Bridge SDK is first <script>", first_script_idx != -1 and sdk_idx != -1 and first_script_idx < sdk_idx < first_script_idx + 200)
     chk("0 inline HTML on*= attrs", len(re.findall(r"<[^>]+\son\w+\s*=", combined)) == 0)
 
     # A script src is "external" only if it points at a different origin
-    # (absolute http(s):// or protocol-relative) that isn't the YouTube SDK
+    # (absolute http(s):// or protocol-relative) that isn't the Bridge SDK
     # itself. A local relative path like "game.js" is part of this game's
     # own bundle, not a CDN/third-party resource.
-    other_srcs = [s for s in re.findall(r'<script[^>]+src="([^"]+)"', html) if "game_api" not in s]
+    other_srcs = [s for s in re.findall(r'<script[^>]+src="([^"]+)"', html) if "playgama-bridge" not in s]
     external_srcs = [s for s in other_srcs if re.match(r'^(https?:)?//', s)]
     chk("no external scripts besides SDK", len(external_srcs) == 0)
 
     chk("no Page Visibility API", "visibilitychange" not in combined and "document.hidden" not in combined)
-    chk("onPause + onResume", "onPause" in combined and "onResume" in combined)
-    chk("firstFrameReady + gameReady", "firstFrameReady" in combined and "gameReady" in combined)
-    chk("saveData present", "saveData" in combined)
-    chk("rewarded ad call", "requestRewardedAd" in combined)
-    chk("interstitial ad call", "requestInterstitialAd" in combined)
+    chk("bridge.initialize() called", "bridge.initialize" in combined)
+    chk("reads platform.language", "platform.language" in combined)
+    chk("pause + audio state events wired", "PAUSE_STATE_CHANGED" in combined and "AUDIO_STATE_CHANGED" in combined)
+    chk("game_ready message sent", "game_ready" in combined)
+    chk("storage save + load present", "storage.set" in combined and "storage.get" in combined)
+    chk("rewarded ad call", "showRewarded" in combined)
+    chk("interstitial ad call", "showInterstitial" in combined)
     chk("pause body-lockout CSS", "body.paused" in combined)
     chk("orientationchange handled", "orientationchange" in combined)
     chk("no TikTok leftovers", "tt.show" not in combined and "showRewardedVideoAd" not in combined)
@@ -176,7 +232,7 @@ def runtime_checks(path):
         errors = []
         pg.on("console", lambda m: errors.append(m.text) if m.type=="error" else None)
         pg.on("pageerror", lambda e: errors.append("PAGEERROR: "+str(e)))
-        pg.route("**/game_api/v1", lambda r: r.fulfill(status=200,
+        pg.route("**/playgama-bridge.js", lambda r: r.fulfill(status=200,
                  content_type="application/javascript", body=MOCK_SDK))
         pg.goto(url); pg.wait_for_timeout(1500)
 
@@ -188,7 +244,7 @@ def runtime_checks(path):
         out.append(("first interstitial on start", any(c['type']=='interstitial' for c in calls), calls))
 
         # pause lockout
-        pg.evaluate("window.__pauseCb && window.__pauseCb()"); pg.wait_for_timeout(200)
+        pg.evaluate("window.__firePause && window.__firePause(true)"); pg.wait_for_timeout(200)
         st = pg.evaluate("({paused: (typeof isPaused!=='undefined'&&isPaused), body: document.body.classList.contains('paused')})")
         reach = pg.evaluate("""() => {
             const btn = document.querySelector('button');
@@ -200,14 +256,14 @@ def runtime_checks(path):
         }""")
         pause_ok = st["paused"] and st["body"] and reach["pe"]=="none"
         out.append(("pause fully locks interaction", pause_ok, {**st, **reach}))
-        pg.evaluate("window.__resumeCb && window.__resumeCb()"); pg.wait_for_timeout(200)
+        pg.evaluate("window.__firePause && window.__firePause(false)"); pg.wait_for_timeout(200)
         out.append(("resume clears pause", not pg.evaluate("(typeof isPaused!=='undefined'&&isPaused)"), None))
 
         # rewarded ad — success then failure
         pg.evaluate("window.__adCalls=[]; window.__rewardResult=true; " + CFG["end_fn"]); pg.wait_for_timeout(200)
         pg.evaluate(CFG["revive_fn"]); pg.wait_for_timeout(400)
         calls2 = pg.evaluate("window.__adCalls")
-        out.append(("rewarded ad fires w/ id", any(c['type']=='rewarded' and c.get('rewardId')==CFG['reward_id'] for c in calls2), calls2))
+        out.append(("rewarded ad fires w/ id", any(c['type']=='rewarded' and c.get('placement')==CFG['reward_id'] for c in calls2), calls2))
         pg.evaluate("window.__rewardResult=false;")
         pg.evaluate(CFG["end_fn"]); pg.wait_for_timeout(150)
         pg.evaluate(CFG["revive_fn"]); pg.wait_for_timeout(400)
