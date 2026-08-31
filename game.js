@@ -4795,26 +4795,48 @@ function sdkSaveIfAvailable() {
     return window.bridge.storage.set(['ec_save'], [JSON.stringify({
       bankedGold: state.bankedGold,
       highScore: state.highScore,
+      diamonds: state.diamonds,
       fuelUpgradeLevel: state.fuelUpgradeLevel,
       coolingUpgradeLevel: state.coolingUpgradeLevel,
       thrusterUpgradeLevel: state.thrusterUpgradeLevel,
       alloyUpgradeLevel: state.alloyUpgradeLevel,
+      offlineRigUpgradeLevel: state.offlineRigUpgradeLevel,
+      diamondSieveUpgradeLevel: state.diamondSieveUpgradeLevel,
+      relicScannerUpgradeLevel: state.relicScannerUpgradeLevel,
+      contractRunnerUpgradeLevel: state.contractRunnerUpgradeLevel,
+      prestigeLevel: state.prestigeLevel,
+      passXp: state.passXp,
+      passSeasonNumber: state.passSeasonNumber,
+      loginStreak: state.loginStreak,
+      lifetimeGoldEarned: state.lifetimeGoldEarned,
+      bestDepthEver: state.bestDepthEver,
+      contractsCompletedLifetime: state.contractsCompletedLifetime,
       relicsFound: state.relicsFound,
       selectedClass: state.selectedClass,
       unlockedTrails: state.unlockedTrails,
       selectedTrail: state.selectedTrail,
+      unlockedBaseSkins: state.unlockedBaseSkins,
+      selectedBaseSkin: state.selectedBaseSkin,
     })]);
   }).catch(() => {});
 }
 
-// Best-effort async patch-in of the platform save over whatever
-// localStorage/memory already loaded synchronously. Known trade-off: the
-// very first frame can briefly show local data before this resolves and
-// patches the platform's copy in — acceptable since local storage already
-// mirrors the same values (see sdkSaveIfAvailable), so the two rarely
-// disagree in practice.
+// Seeds a brand-new device/browser (one that has never played before, i.e.
+// localStorage has no 'ec_bankedGold' key at all) from the platform's own
+// save slot — for cross-device continuity where the platform supports it.
+//
+// Deliberately NOT a general "patch in whatever the platform has" merge
+// once real local progress already exists: localStorage is written
+// synchronously the instant something changes, while sdkSaveIfAvailable()'s
+// mirror to bridge.storage is asynchronous and can still be in flight if
+// the tab closes/reloads shortly after an action. Confirmed directly: a
+// stale bridge-storage snapshot overwrote a value that had just been set
+// moments earlier. Since localStorage is always at least as current as
+// this async mirror on the SAME device, it must win once it has anything
+// at all — this only ever runs to fill in an empty local slate.
 async function sdkLoadAndMergeIfAvailable() {
   if (!(window.bridge && window.bridge.storage && bridgeReadyPromise)) return;
+  if (storageGet('ec_bankedGold') !== null) return; // real local progress already exists — never let a possibly-stale mirror overwrite it
   try {
     await bridgeReadyPromise;
     const result = await window.bridge.storage.get(['ec_save']);
@@ -4827,14 +4849,28 @@ async function sdkLoadAndMergeIfAvailable() {
     const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (typeof data.bankedGold === 'number') state.bankedGold = data.bankedGold;
     if (typeof data.highScore === 'number') state.highScore = data.highScore;
+    if (typeof data.diamonds === 'number') state.diamonds = data.diamonds;
     if (typeof data.fuelUpgradeLevel === 'number') state.fuelUpgradeLevel = data.fuelUpgradeLevel;
     if (typeof data.coolingUpgradeLevel === 'number') state.coolingUpgradeLevel = data.coolingUpgradeLevel;
     if (typeof data.thrusterUpgradeLevel === 'number') state.thrusterUpgradeLevel = data.thrusterUpgradeLevel;
     if (typeof data.alloyUpgradeLevel === 'number') state.alloyUpgradeLevel = data.alloyUpgradeLevel;
+    if (typeof data.offlineRigUpgradeLevel === 'number') state.offlineRigUpgradeLevel = data.offlineRigUpgradeLevel;
+    if (typeof data.diamondSieveUpgradeLevel === 'number') state.diamondSieveUpgradeLevel = data.diamondSieveUpgradeLevel;
+    if (typeof data.relicScannerUpgradeLevel === 'number') state.relicScannerUpgradeLevel = data.relicScannerUpgradeLevel;
+    if (typeof data.contractRunnerUpgradeLevel === 'number') state.contractRunnerUpgradeLevel = data.contractRunnerUpgradeLevel;
+    if (typeof data.prestigeLevel === 'number') state.prestigeLevel = data.prestigeLevel;
+    if (typeof data.passXp === 'number') state.passXp = data.passXp;
+    if (typeof data.passSeasonNumber === 'number') state.passSeasonNumber = data.passSeasonNumber;
+    if (typeof data.loginStreak === 'number') state.loginStreak = data.loginStreak;
+    if (typeof data.lifetimeGoldEarned === 'number') state.lifetimeGoldEarned = data.lifetimeGoldEarned;
+    if (typeof data.bestDepthEver === 'number') state.bestDepthEver = data.bestDepthEver;
+    if (typeof data.contractsCompletedLifetime === 'number') state.contractsCompletedLifetime = data.contractsCompletedLifetime;
     if (Array.isArray(data.relicsFound)) state.relicsFound = data.relicsFound;
     if (typeof data.selectedClass === 'string' && DRILL_CLASSES[data.selectedClass]) state.selectedClass = data.selectedClass;
     if (Array.isArray(data.unlockedTrails) && data.unlockedTrails.includes('standard')) state.unlockedTrails = data.unlockedTrails;
     if (typeof data.selectedTrail === 'string' && state.unlockedTrails.includes(data.selectedTrail)) state.selectedTrail = data.selectedTrail;
+    if (Array.isArray(data.unlockedBaseSkins) && data.unlockedBaseSkins.includes('standard')) state.unlockedBaseSkins = data.unlockedBaseSkins;
+    if (typeof data.selectedBaseSkin === 'string' && state.unlockedBaseSkins.includes(data.selectedBaseSkin)) state.selectedBaseSkin = data.selectedBaseSkin;
     startHighscoreEl.textContent = 'High Score: ' + state.highScore; // reflect a late-arriving platform save
   } catch (e) {
     // keep whatever local storage / defaults already loaded
